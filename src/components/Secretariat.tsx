@@ -61,9 +61,9 @@ export default function Secretariat({ state, onAddMouvement }: SecretariatProps)
 
   // Suggestion de prestations courantes pour saisie en 1 clic !
   const PRESTATIONS_PREDEFINIES = [
-    { nom: 'Photocopie A4 Simple', prix: 25 },
-    { nom: 'Impression Noir & Blanc A4', prix: 100 },
-    { nom: 'Impression Couleur A4', prix: 250 },
+    { nom: 'Photocopie Couleur', prix: 50 },
+    { nom: 'Photocopie Recto Verso Couleur', prix: 100 },
+    { nom: 'Photocopie Noir sur Blanc', prix: 50 },
     { nom: 'Reliure de Document', prix: 500 },
     { nom: 'Saisie de Texte / page', prix: 500 },
     { nom: 'Plastification A4', prix: 500 },

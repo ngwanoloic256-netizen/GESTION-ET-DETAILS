@@ -1,5 +1,5 @@
 import { doc, getDocFromServer } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, auth } from './firebase';
 
 export enum OperationType {
   CREATE = 'create',
@@ -26,10 +26,10 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: null,
-      email: null,
-      emailVerified: null,
-      isAnonymous: null,
+      userId: auth.currentUser?.uid || null,
+      email: auth.currentUser?.email || null,
+      emailVerified: auth.currentUser?.emailVerified || null,
+      isAnonymous: auth.currentUser?.isAnonymous || null,
     },
     operationType,
     path
@@ -37,6 +37,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
+
 
 // Validate connection to Firestore on boot as per CRITICAL CONSTRAINT
 export async function testConnection() {

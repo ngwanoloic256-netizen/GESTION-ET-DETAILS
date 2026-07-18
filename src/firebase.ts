@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAnalytics, isSupported } from "firebase/analytics";
+import { getAuth } from "firebase/auth";
 
 // Config provided by the user
 const firebaseConfig = {
@@ -17,10 +18,12 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore
-export const db = getFirestore(app);
+// Initialize Firestore with the user's specific database ID
+export const db = getFirestore(app, "ai-studio-gestiondestocket-c9302fd5-0dc6-42db-a023-5bfb1274d4f4");
 
-// Initialize Analytics conditionally to prevent crashes inside preview iframe sandboxes
-export const analyticsPromise = typeof window !== 'undefined'
-  ? isSupported().then(yes => yes ? getAnalytics(app) : null).catch(() => null)
-  : Promise.resolve(null);
+// Export Authentication
+export const auth = getAuth(app);
+
+// Initialize Analytics is disabled in the preview sandbox to prevent iframe crashes
+export const analyticsPromise = Promise.resolve(null);
+

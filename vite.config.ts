@@ -9,6 +9,10 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        'formdata-polyfill/esm.min.js': path.resolve(__dirname, 'src/empty-polyfill.ts'),
+        'formdata-polyfill/formdata.min.js': path.resolve(__dirname, 'src/empty-polyfill.ts'),
+        'formdata-polyfill/FormData.js': path.resolve(__dirname, 'src/empty-polyfill.ts'),
+        'formdata-polyfill': path.resolve(__dirname, 'src/empty-polyfill.ts'),
       },
     },
     server: {

@@ -27,6 +27,36 @@ export default function Dashboard({ state, onNavigate, onRestockSecretariat, onR
   const [restockQty, setRestockQty] = useState<{ [key: string]: number }>({});
   const [criticalThreshold, setCriticalThreshold] = useState<number>(5);
 
+  // Objectif de chiffre d'affaires quotidien
+  const [dailyGoal, setDailyGoal] = useState<number>(() => {
+    const saved = localStorage.getItem('daily_revenue_goal');
+    return saved ? parseInt(saved, 10) : 50000; // default 50 000 FCFA
+  });
+
+  const handleGoalChange = (val: number) => {
+    const newVal = Math.max(0, val);
+    setDailyGoal(newVal);
+    localStorage.setItem('daily_revenue_goal', newVal.toString());
+  };
+
+  // Calcul du CA spécifique à la journée en cours
+  const isToday = (dateStr: string) => isDateInPeriod(dateStr, 'day');
+
+  const todaySecretariatRecette = state.secretariatMouvements
+    .filter(m => isToday(m.date) && m.typeMouvement !== 'entree_stock')
+    .reduce((sum, m) => sum + m.montant, 0);
+
+  const todayMobileMoneyVolume = state.mobileMoneyTransactions
+    .filter(t => isToday(t.date))
+    .reduce((sum, t) => sum + t.montant, 0);
+
+  const todayBoissonsRecette = state.boissonsMouvements
+    .filter(m => isToday(m.date) && m.typeMouvement === 'vente')
+    .reduce((sum, m) => sum + m.montant, 0);
+
+  const todayChiffreAffaires = todaySecretariatRecette + todayMobileMoneyVolume + todayBoissonsRecette;
+  const rawPercentage = dailyGoal > 0 ? (todayChiffreAffaires / dailyGoal) * 100 : 0;
+
   const filterFn = (dateStr: string) => isDateInPeriod(dateStr, period);
 
   // --- CALCUL DES STATS CONSOLIDEES ---
@@ -255,6 +285,74 @@ export default function Dashboard({ state, onNavigate, onRestockSecretariat, onR
             <p className="text-xs text-slate-500 mt-1">
               {totalAlertes > 0 ? "Nécessite votre attention" : "Tous les stocks sont à flot"}
             </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Objectif de Chiffre d'Affaires Quotidien */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-xs relative overflow-hidden" id="daily-revenue-goal-card">
+        {/* Subtle decorative background circle */}
+        <div className="absolute top-0 right-0 w-40 h-40 bg-indigo-50/20 rounded-full translate-x-12 -translate-y-12 pointer-events-none" />
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
+          <div className="space-y-1 flex-1">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                <TrendingUp size={18} />
+              </div>
+              <h3 className="text-base font-bold text-slate-800">Objectif de Chiffre d'Affaires Quotidien</h3>
+            </div>
+            <p className="text-xs text-slate-500 max-w-2xl">
+              Définissez votre objectif de ventes pour motiver votre journée et suivez votre taux de réalisation en temps réel (Secrétariat + Mobile Money + Boissons).
+            </p>
+          </div>
+          
+          {/* Champ de saisie pour l'objectif */}
+          <div className="flex items-center gap-3 bg-slate-50 p-2.5 rounded-xl border border-slate-200/60 self-start md:self-center">
+            <label htmlFor="daily-goal-input" className="text-xs font-bold text-slate-600 whitespace-nowrap">
+              Objectif (FCFA) :
+            </label>
+            <input 
+              id="daily-goal-input"
+              type="number" 
+              min="0"
+              step="1000"
+              value={dailyGoal === 0 ? '' : dailyGoal} 
+              onChange={(e) => handleGoalChange(parseInt(e.target.value) || 0)}
+              placeholder="Ex: 50000"
+              className="w-36 px-3 py-1.5 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-right"
+            />
+          </div>
+        </div>
+
+        {/* Barre de progression visuelle */}
+        <div className="mt-6 space-y-2.5 relative z-10">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-1 text-xs font-medium text-slate-500">
+            <span>
+              Progression : <strong className="text-slate-800 font-bold text-sm">{formatFCFA(todayChiffreAffaires)}</strong> réalisés sur aujourd'hui
+            </span>
+            <span className={`font-extrabold text-sm flex items-center gap-1 ${rawPercentage >= 100 ? 'text-emerald-600' : 'text-indigo-600'}`}>
+              Taux de réussite : {rawPercentage.toFixed(1)}% {rawPercentage >= 100 && <span className="animate-bounce">🎉 Bravo !</span>}
+            </span>
+          </div>
+          
+          <div className="w-full h-3.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200/40">
+            <div 
+              style={{ width: `${Math.min(100, rawPercentage)}%` }}
+              className={`h-full transition-all duration-700 ease-out rounded-full ${
+                rawPercentage >= 100 
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500' 
+                  : rawPercentage >= 75 
+                    ? 'bg-gradient-to-r from-indigo-500 to-blue-500' 
+                    : rawPercentage >= 50 
+                      ? 'bg-gradient-to-r from-amber-500 to-indigo-500' 
+                      : 'bg-gradient-to-r from-rose-500 to-amber-500'
+              }`}
+            />
+          </div>
+
+          <div className="flex justify-between text-3xs text-slate-400 font-medium pt-0.5">
+            <span>Début (0 FCFA)</span>
+            <span className="font-bold text-slate-500">Objectif : {formatFCFA(dailyGoal)}</span>
           </div>
         </div>
       </div>

@@ -8,7 +8,7 @@ import {
   BoissonMouvement,
   HistoriquePrix,
 } from './types';
-import { db } from './firebase';
+import { db, auth } from './firebase';
 import {
   collection,
   doc,
@@ -18,6 +18,13 @@ import {
   writeBatch,
   onSnapshot
 } from 'firebase/firestore';
+import {
+  onAuthStateChanged,
+  User,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut
+} from 'firebase/auth';
 import { handleFirestoreError, testConnection, OperationType } from './firebaseUtils';
 
 // Helper to generate IDs
@@ -368,6 +375,9 @@ const INITIAL_STATE: AppState = {
 };
 
 export function useAppState() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [state, setState] = useState<AppState>({
     secretariatCatalogue: [],
@@ -377,6 +387,78 @@ export function useAppState() {
     boissonsMouvements: [],
     historiquePrix: [],
   });
+  const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+
+  // Listen to Firebase Auth state on mount
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        // Enforce that only the single allowed user (ngwanoloic256@gmail.com) can access
+        if (currentUser.email === "ngwanoloic256@gmail.com") {
+          setUser(currentUser);
+          setAuthError(null);
+        } else {
+          // Log out immediately if not authorized
+          await signOut(auth);
+          setUser(null);
+          setAuthError("Accès refusé : Seul l'administrateur unique (ngwanoloic256@gmail.com) est autorisé.");
+          setLoading(false);
+        }
+      } else {
+        setUser(null);
+        setLoading(false);
+      }
+      setAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const loginWithGoogle = async () => {
+    setAuthError(null);
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      if (result.user && result.user.email !== "ngwanoloic256@gmail.com") {
+        await signOut(auth);
+        setUser(null);
+        setAuthError("Accès refusé : Seul l'administrateur unique (ngwanoloic256@gmail.com) est autorisé.");
+      }
+    } catch (err: any) {
+      console.error("Google Sign-In failed: ", err);
+      setAuthError(err.message || "Échec de la connexion avec Google.");
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await signOut(auth);
+      setUser(null);
+      setState({
+        secretariatCatalogue: [],
+        secretariatMouvements: [],
+        mobileMoneyTransactions: [],
+        boissonsCatalogue: [],
+        boissonsMouvements: [],
+        historiquePrix: [],
+      });
+    } catch (err) {
+      console.error("Logout failed: ", err);
+    }
+  };
+
+  // Helper to force synchronization and update status
+  const runSync = async <T>(promise: Promise<T>): Promise<T> => {
+    setSyncStatus('saving');
+    try {
+      const res = await promise;
+      setSyncStatus('saved');
+      return res;
+    } catch (error) {
+      setSyncStatus('error');
+      throw error;
+    }
+  };
 
   // Automatically initialize database with demo data if it's completely empty
   const seedInitialData = async () => {
@@ -407,7 +489,7 @@ export function useAppState() {
         batch.set(doc(db, 'historiquePrix', item.id), item);
       });
 
-      await batch.commit();
+      await runSync(batch.commit());
       console.log("Firestore initialized successfully with default template data.");
     } catch (err) {
       console.error("Auto-seeding Firestore failed: ", err);
@@ -415,6 +497,14 @@ export function useAppState() {
   };
 
   useEffect(() => {
+    if (authLoading) return;
+
+    // If user is not logged in or not authorized, don't subscribe to Firestore
+    if (!user || user.email !== "ngwanoloic256@gmail.com") {
+      setLoading(false);
+      return;
+    }
+
     // Perform safety check on boot
     testConnection();
 
@@ -427,6 +517,7 @@ export function useAppState() {
       { key: 'historiquePrix', path: 'historiquePrix' },
     ];
 
+    setLoading(true);
     let loadedCount = 0;
     const initialFetchedData: Partial<AppState> = {};
 
@@ -444,16 +535,14 @@ export function useAppState() {
 
         initialFetchedData[key] = items;
         
-        if (loading) {
-          loadedCount++;
-          if (loadedCount === collectionsList.length) {
-            // Check if all collections are empty in the Firebase project
-            const allEmpty = collectionsList.every(col => (initialFetchedData[col.key]?.length || 0) === 0);
-            if (allEmpty) {
-              seedInitialData();
-            }
-            setLoading(false);
+        loadedCount++;
+        if (loadedCount >= collectionsList.length) {
+          // Check if all collections are empty in the Firebase project
+          const allEmpty = collectionsList.every(col => (initialFetchedData[col.key]?.length || 0) === 0);
+          if (allEmpty) {
+            seedInitialData();
           }
+          setLoading(false);
         }
       }, (error) => {
         console.error(`Error loading collection ${path}: `, error);
@@ -465,7 +554,7 @@ export function useAppState() {
     return () => {
       unsubscribers.forEach(unsub => unsub());
     };
-  }, []);
+  }, [user, authLoading]);
 
   // --- ACTIONS GLOBALES ---
 
@@ -478,7 +567,7 @@ export function useAppState() {
       state.boissonsCatalogue.forEach(item => batch.delete(doc(db, 'boissonsCatalogue', item.id)));
       state.boissonsMouvements.forEach(item => batch.delete(doc(db, 'boissonsMouvements', item.id)));
       state.historiquePrix.forEach(item => batch.delete(doc(db, 'historiquePrix', item.id)));
-      await batch.commit();
+      await runSync(batch.commit());
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, 'clear_all_data');
     }
@@ -492,6 +581,71 @@ export function useAppState() {
       handleFirestoreError(error, OperationType.WRITE, 'reset_to_sample_data');
     }
   };
+
+  const resetExceptLastThreeSecretariat = async () => {
+    try {
+      const batch = writeBatch(db);
+
+      // 1. Get secretariat movements sorted by date descending (most recent first)
+      const sortedSecMovs = [...state.secretariatMouvements].sort((a, b) => 
+        new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+
+      // Keep the 3 most recent, delete the rest
+      const keptSecMovs = sortedSecMovs.slice(0, 3);
+      const keepSecIds = new Set(keptSecMovs.map(m => m.id));
+
+      sortedSecMovs.forEach(item => {
+        if (!keepSecIds.has(item.id)) {
+          batch.delete(doc(db, 'secretariatMouvements', item.id));
+        }
+      });
+
+      // 2. Delete all Mobile Money transactions
+      state.mobileMoneyTransactions.forEach(item => {
+        batch.delete(doc(db, 'mobileMoneyTransactions', item.id));
+      });
+
+      // 3. Delete all Boissons movements
+      state.boissonsMouvements.forEach(item => {
+        batch.delete(doc(db, 'boissonsMouvements', item.id));
+      });
+
+      // 4. Delete all Historique Prix
+      state.historiquePrix.forEach(item => {
+        batch.delete(doc(db, 'historiquePrix', item.id));
+      });
+
+      // 5. Reset all stocks in Boissons Catalogue to 0
+      state.boissonsCatalogue.forEach(item => {
+        batch.update(doc(db, 'boissonsCatalogue', item.id), { quantiteEnStock: 0 });
+      });
+
+      // 6. Reset all stocks in Secretariat Catalogue to 0
+      state.secretariatCatalogue.forEach(item => {
+        batch.update(doc(db, 'secretariatCatalogue', item.id), { quantiteEnStock: 0 });
+      });
+
+      await runSync(batch.commit());
+      console.log("Remise à zéro sélective réussie (excepté les 3 dernières transactions secrétariat).");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'reset_except_last_three_secretariat');
+    }
+  };
+
+  // Automatic execution once when initial loading completes for the correct user
+  useEffect(() => {
+    if (!loading && user && user.email === "ngwanoloic256@gmail.com") {
+      const resetFlagKey = 'auto_reset_except_3_sec_v3';
+      if (!localStorage.getItem(resetFlagKey)) {
+        localStorage.setItem(resetFlagKey, 'completed');
+        resetExceptLastThreeSecretariat().catch(err => {
+          console.error("Auto reset failed: ", err);
+          localStorage.removeItem(resetFlagKey); // clear flag on error so we try again
+        });
+      }
+    }
+  }, [loading, user, state.secretariatMouvements.length]);
 
   const importData = async (imported: Partial<AppState>) => {
     try {
@@ -516,7 +670,7 @@ export function useAppState() {
         imported.historiquePrix.forEach(item => batch.set(doc(db, 'historiquePrix', item.id), item));
       }
 
-      await batch.commit();
+      await runSync(batch.commit());
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'import_data');
     }
@@ -532,7 +686,7 @@ export function useAppState() {
       createdAt: new Date().toISOString(),
     };
     try {
-      await setDoc(doc(db, 'secretariatCatalogue', id), newArticle);
+      await runSync(setDoc(doc(db, 'secretariatCatalogue', id), newArticle));
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `secretariatCatalogue/${id}`);
     }
@@ -564,7 +718,7 @@ export function useAppState() {
         batch.set(doc(db, 'historiquePrix', histId), histEntry);
       }
 
-      await batch.commit();
+      await runSync(batch.commit());
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `secretariatCatalogue/${id}`);
     }
@@ -581,7 +735,7 @@ export function useAppState() {
         }
       });
 
-      await batch.commit();
+      await runSync(batch.commit());
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `secretariatCatalogue/${id}`);
     }
@@ -615,7 +769,7 @@ export function useAppState() {
         }
       }
 
-      await batch.commit();
+      await runSync(batch.commit());
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `secretariatMouvements/${id}`);
     }
@@ -631,7 +785,7 @@ export function useAppState() {
       date: tx.date || new Date().toISOString(),
     };
     try {
-      await setDoc(doc(db, 'mobileMoneyTransactions', id), newTx);
+      await runSync(setDoc(doc(db, 'mobileMoneyTransactions', id), newTx));
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `mobileMoneyTransactions/${id}`);
     }
@@ -639,7 +793,7 @@ export function useAppState() {
 
   const deleteMobileMoneyTransaction = async (id: string) => {
     try {
-      await deleteDoc(doc(db, 'mobileMoneyTransactions', id));
+      await runSync(deleteDoc(doc(db, 'mobileMoneyTransactions', id)));
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `mobileMoneyTransactions/${id}`);
     }
@@ -655,7 +809,7 @@ export function useAppState() {
       createdAt: new Date().toISOString(),
     };
     try {
-      await setDoc(doc(db, 'boissonsCatalogue', id), newProduct);
+      await runSync(setDoc(doc(db, 'boissonsCatalogue', id), newProduct));
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `boissonsCatalogue/${id}`);
     }
@@ -698,7 +852,7 @@ export function useAppState() {
         });
       }
 
-      await batch.commit();
+      await runSync(batch.commit());
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `boissonsCatalogue/${id}`);
     }
@@ -715,7 +869,7 @@ export function useAppState() {
         }
       });
 
-      await batch.commit();
+      await runSync(batch.commit());
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `boissonsCatalogue/${id}`);
     }
@@ -747,7 +901,7 @@ export function useAppState() {
         });
       }
 
-      await batch.commit();
+      await runSync(batch.commit());
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `boissonsMouvements/${id}`);
     }
@@ -756,9 +910,17 @@ export function useAppState() {
   return {
     state,
     loading,
+    syncStatus,
     clearAllData,
     resetToSampleData,
+    resetExceptLastThreeSecretariat,
     importData,
+    // Auth fields
+    user,
+    authLoading,
+    authError,
+    loginWithGoogle,
+    logout,
     // Secrétariat
     addSecretariatArticle,
     updateSecretariatArticle,

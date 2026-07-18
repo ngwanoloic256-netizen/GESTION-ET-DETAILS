@@ -51,7 +51,7 @@ export function formatDateLabel(dateStr: string, includeTime = false): string {
 
 // Export data to CSV
 export function exportToCSV(filename: string, headers: string[], rows: string[][]) {
-  const csvContent = "data:text/csv;charset=utf-8,\uFEFF" // Add UTF-8 BOM for Excel French support
+  const csvContent = "\uFEFF" // UTF-8 BOM for Excel French support
     + headers.join(";") + "\n"
     + rows.map(e => e.map(val => {
         // Escape quotes and semi-colons
@@ -59,13 +59,15 @@ export function exportToCSV(filename: string, headers: string[], rows: string[][
         return `"${cleanVal}"`;
       }).join(";")).join("\n");
   
-  const encodedUri = encodeURI(csvContent);
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  link.setAttribute("href", encodedUri);
+  link.setAttribute("href", url);
   link.setAttribute("download", filename);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 // Generate CSV export for Secretariat

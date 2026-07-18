@@ -1,6 +1,15 @@
 import React, { useState } from 'react';
 import { AppState, HistoriquePrix } from '../types';
-import { formatFCFA, formatDateLabel, exportConsolidatedReport, isDateInPeriod } from '../utils';
+import D3RevenueChart from './D3RevenueChart';
+import { 
+  formatFCFA, 
+  formatDateLabel, 
+  exportConsolidatedReport, 
+  isDateInPeriod,
+  exportSecretariatMouvements,
+  exportMobileMoneyTransactions,
+  exportBoissonsMouvements
+} from '../utils';
 import { 
   BarChart3, 
   Download, 
@@ -21,6 +30,7 @@ interface RapportsProps {
   state: AppState;
   clearAllData: () => void;
   resetToSampleData: () => void;
+  resetExceptLastThreeSecretariat: () => void;
   importData: (imported: Partial<AppState>) => void;
 }
 
@@ -28,6 +38,7 @@ export default function Rapports({
   state,
   clearAllData,
   resetToSampleData,
+  resetExceptLastThreeSecretariat,
   importData,
 }: RapportsProps) {
   const [reportPeriod, setReportPeriod] = useState<'day' | 'week' | 'month' | 'all'>('week');
@@ -65,6 +76,50 @@ export default function Rapports({
   // Totaux Consolidés
   const consolidatedRevenue = secRevenue + mmVolume + boissonRevenue;
   const consolidatedEarnings = secRevenue + mmCommissions + boissonMarge;
+
+  // --- REGROUPEMENT ET FILTRAGE DES TRANSACTIONS ---
+  const filteredTransactionsList = [
+    ...secMouvements.map(m => {
+      return {
+        id: m.id,
+        date: m.date,
+        module: 'secretariat' as const,
+        description: m.nomPrestationOuArticle,
+        type: m.typeMouvement === 'vente_article' ? 'Vente Article' : m.typeMouvement === 'entree_stock' ? 'Entrée de Stock' : 'Prestation',
+        montant: m.montant,
+        gain: m.typeMouvement === 'entree_stock' ? 0 : m.montant,
+      };
+    }),
+    ...mmTransactions.map(t => {
+      return {
+        id: t.id,
+        date: t.date,
+        module: 'mobile_money' as const,
+        description: `${t.typeOperation} sur ${t.reseau}`,
+        type: t.typeOperation,
+        montant: t.montant,
+        gain: t.commission,
+      };
+    }),
+    ...boissonMouvements.map(m => {
+      let marge = 0;
+      if (m.typeMouvement === 'vente') {
+        const prod = state.boissonsCatalogue.find(p => p.id === m.idProduit);
+        if (prod) {
+          marge = (prod.prixVenteActuel - prod.prixAchatActuel) * m.quantite;
+        }
+      }
+      return {
+        id: m.id,
+        date: m.date,
+        module: 'boissons' as const,
+        description: `${m.nomProduit} (x${m.quantite})`,
+        type: m.typeMouvement === 'vente' ? 'Vente' : 'Ravitaillement',
+        montant: m.montant,
+        gain: marge,
+      };
+    })
+  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   // --- LOGIQUE SAUVEGARDE & RESTAURATION ---
 
@@ -208,6 +263,112 @@ export default function Rapports({
 
       </div>
 
+      {/* Graphique D3 de l'évolution du chiffre d'affaires */}
+      <D3RevenueChart state={state} />
+
+      {/* 2. Détails des Transactions Filtrées */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 pb-3 border-b border-slate-50">
+          <div>
+            <h3 className="text-base font-semibold text-slate-800 flex items-center gap-1.5">
+              <History size={18} className="text-blue-500" />
+              Transactions de la Période
+            </h3>
+            <p className="text-2xs text-slate-400 font-normal">Liste et archivage individuel des transactions et mouvements filtrés</p>
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => exportConsolidatedReport(state, reportPeriod)}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-2xs font-bold py-1.5 px-3 rounded-lg flex items-center gap-1 transition-all cursor-pointer shadow-3xs"
+            >
+              <Download size={12} />
+              Exporter tout (CSV)
+            </button>
+            <button
+              onClick={() => exportSecretariatMouvements(secMouvements)}
+              disabled={secMouvements.length === 0}
+              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-2xs font-bold py-1.5 px-3 rounded-lg flex items-center gap-1 transition-all cursor-pointer shadow-3xs"
+            >
+              <Download size={12} />
+              Secrétariat
+            </button>
+            <button
+              onClick={() => exportMobileMoneyTransactions(mmTransactions)}
+              disabled={mmTransactions.length === 0}
+              className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-2xs font-bold py-1.5 px-3 rounded-lg flex items-center gap-1 transition-all cursor-pointer shadow-3xs"
+            >
+              <Download size={12} />
+              Mobile Money
+            </button>
+            <button
+              onClick={() => exportBoissonsMouvements(boissonMouvements)}
+              disabled={boissonMouvements.length === 0}
+              className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-2xs font-bold py-1.5 px-3 rounded-lg flex items-center gap-1 transition-all cursor-pointer shadow-3xs"
+            >
+              <Download size={12} />
+              Boissons
+            </button>
+          </div>
+        </div>
+
+        {filteredTransactionsList.length === 0 ? (
+          <div className="text-center py-10 text-slate-400 text-xs">
+            Aucune transaction enregistrée sur la période sélectionnée.
+          </div>
+        ) : (
+          <div className="overflow-x-auto max-h-[350px]">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-100 text-slate-400 text-3xs font-bold uppercase tracking-wider">
+                  <th className="py-2.5 px-4">Date</th>
+                  <th className="py-2.5 px-4">Activité</th>
+                  <th className="py-2.5 px-4">Description</th>
+                  <th className="py-2.5 px-4">Type</th>
+                  <th className="py-2.5 px-4 text-right">Montant</th>
+                  <th className="py-2.5 px-4 text-right">Marge / Gain</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50 text-xs">
+                {filteredTransactionsList.map((tx) => (
+                  <tr key={`${tx.module}-${tx.id}`} className="hover:bg-slate-50/50 transition-all text-slate-600">
+                    <td className="py-2 px-4 whitespace-nowrap text-slate-400">
+                      <span className="flex items-center gap-1">
+                        <Calendar size={12} />
+                        {formatDateLabel(tx.date, true)}
+                      </span>
+                    </td>
+                    <td className="py-2 px-4">
+                      <span className={`px-2 py-0.5 rounded text-3xs font-bold uppercase ${
+                        tx.module === 'secretariat' 
+                          ? 'bg-blue-50 text-blue-700 border border-blue-100/50' 
+                          : tx.module === 'mobile_money'
+                          ? 'bg-amber-50 text-amber-700 border border-amber-100/50'
+                          : 'bg-purple-50 text-purple-700 border border-purple-100/50'
+                      }`}>
+                        {tx.module === 'secretariat' ? 'Secrétariat' : tx.module === 'mobile_money' ? 'Mobile Money' : 'Boissons'}
+                      </span>
+                    </td>
+                    <td className="py-2 px-4 font-semibold text-slate-700">
+                      {tx.description}
+                    </td>
+                    <td className="py-2 px-4 text-slate-500 font-medium capitalize">
+                      {tx.type}
+                    </td>
+                    <td className="py-2 px-4 text-right font-medium text-slate-800">
+                      {formatFCFA(tx.montant)}
+                    </td>
+                    <td className={`py-2 px-4 text-right font-bold ${tx.gain > 0 ? 'text-emerald-600 bg-emerald-50/20' : 'text-slate-400'}`}>
+                      {formatFCFA(tx.gain)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* 2. Historique des Prix */}
       <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-xs">
         <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-50">
@@ -282,7 +443,7 @@ export default function Rapports({
           Sauvegardes & Restauration (Usage Interne)
         </h3>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
           
           {/* Exporter */}
           <button
@@ -333,6 +494,25 @@ export default function Rapports({
             <div>
               <h4 className="text-xs font-bold text-slate-800">Charger données démo</h4>
               <p className="text-3xs text-slate-400 mt-1">Insère des cahiers types, des boissons et quelques transactions exemples</p>
+            </div>
+          </button>
+
+          {/* Remise à zéro sélective */}
+          <button
+            onClick={() => {
+              if (confirm("Voulez-vous remettre à zéro tous les compteurs (transactions Mobile Money, mouvements boissons et stocks) tout en conservant uniquement les 3 dernières transactions du secrétariat ?")) {
+                resetExceptLastThreeSecretariat();
+                alert('La remise à zéro sélective a été effectuée avec succès !');
+              }
+            }}
+            className="p-4 bg-amber-50/50 hover:bg-amber-100/50 border border-amber-200 rounded-xl text-left transition-all flex flex-col justify-between h-32 group cursor-pointer"
+          >
+            <div className="p-2 bg-white text-amber-600 rounded-lg group-hover:scale-110 transition-transform">
+              <RefreshCw size={16} className="text-amber-600" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-amber-800">Remise à zéro sélective</h4>
+              <p className="text-3xs text-amber-600/80 mt-1">Efface tout et remet les stocks à 0 en préservant les 3 dernières transactions secrétariat</p>
             </div>
           </button>
 

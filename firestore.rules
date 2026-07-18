@@ -1,0 +1,41 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net (default deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper to check if signed-in and email matches the unique owner
+    function isOwner() {
+      return request.auth != null 
+        && request.auth.token.email == "ngwanoloic256@gmail.com";
+    }
+
+    match /secretariatCatalogue/{id} {
+      allow read, write: if isOwner();
+    }
+
+    match /secretariatMouvements/{id} {
+      allow read, write: if isOwner();
+    }
+
+    match /mobileMoneyTransactions/{id} {
+      allow read, write: if isOwner();
+    }
+
+    match /boissonsCatalogue/{id} {
+      allow read, write: if isOwner();
+    }
+
+    match /boissonsMouvements/{id} {
+      allow read, write: if isOwner();
+    }
+
+    match /historiquePrix/{id} {
+      allow read, write: if isOwner();
+    }
+  }
+}
+
