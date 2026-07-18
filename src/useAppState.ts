@@ -8,6 +8,17 @@ import {
   BoissonMouvement,
   HistoriquePrix,
 } from './types';
+import { db } from './firebase';
+import {
+  collection,
+  doc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  writeBatch,
+  onSnapshot
+} from 'firebase/firestore';
+import { handleFirestoreError, testConnection, OperationType } from './firebaseUtils';
 
 // Helper to generate IDs
 const generateId = () => Math.random().toString(36).substring(2, 9);
@@ -86,14 +97,13 @@ const INITIAL_STATE: AppState = {
     }
   ],
   secretariatMouvements: [
-    // Prestations et ventes des jours passés
     {
       id: 'sec-mov-1',
       date: getRelativeDate(3, 9, 30),
       nomPrestationOuArticle: 'Photocopie A4 Simple',
       typeMouvement: 'prestation_service',
       quantite: 15,
-      montant: 375, // 25 FCFA par page
+      montant: 375,
     },
     {
       id: 'sec-mov-2',
@@ -138,7 +148,6 @@ const INITIAL_STATE: AppState = {
       quantite: 2,
       montant: 1600,
     },
-    // Aujourd'hui
     {
       id: 'sec-mov-7',
       date: getRelativeDate(0, 8, 45),
@@ -158,7 +167,6 @@ const INITIAL_STATE: AppState = {
     }
   ],
   mobileMoneyTransactions: [
-    // Transactions jours passés
     {
       id: 'mm-tx-1',
       date: getRelativeDate(3, 9, 0),
@@ -207,7 +215,6 @@ const INITIAL_STATE: AppState = {
       montant: 1500,
       commission: 150,
     },
-    // Aujourd'hui
     {
       id: 'mm-tx-7',
       date: getRelativeDate(0, 9, 15),
@@ -248,7 +255,7 @@ const INITIAL_STATE: AppState = {
       nom: 'Fanta Orange 33cl (Canette)',
       prixAchatActuel: 350,
       prixVenteActuel: 500,
-      quantiteEnStock: 4, // Bas stock
+      quantiteEnStock: 4,
       seuilAlerte: 6,
       createdAt: getRelativeDate(10),
     },
@@ -272,7 +279,6 @@ const INITIAL_STATE: AppState = {
     }
   ],
   boissonsMouvements: [
-    // Ventes et approvisionnements passés
     {
       id: 'b-mov-1',
       date: getRelativeDate(3, 10, 0),
@@ -293,12 +299,12 @@ const INITIAL_STATE: AppState = {
     },
     {
       id: 'b-mov-3',
-      date: getRelativeDate(2, 0, 0), // Entrée de stock
+      date: getRelativeDate(2, 0, 0),
       idProduit: 'b-eau-15',
       nomProduit: 'Eau Minérale Tangui 1.5L',
       quantite: 12,
       typeMouvement: 'entree',
-      montant: 3000, // 12 * 250
+      montant: 3000,
     },
     {
       id: 'b-mov-4',
@@ -318,7 +324,6 @@ const INITIAL_STATE: AppState = {
       typeMouvement: 'vente',
       montant: 3200,
     },
-    // Aujourd'hui
     {
       id: 'b-mov-6',
       date: getRelativeDate(0, 10, 10),
@@ -363,136 +368,226 @@ const INITIAL_STATE: AppState = {
 };
 
 export function useAppState() {
-  const [state, setState] = useState<AppState>(() => {
-    const saved = localStorage.getItem('gestion_stock_state');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error("Échec du chargement de l'état sauvegardé, utilisation de l'état initial.", e);
-        return INITIAL_STATE;
-      }
-    }
-    return INITIAL_STATE;
+  const [loading, setLoading] = useState<boolean>(true);
+  const [state, setState] = useState<AppState>({
+    secretariatCatalogue: [],
+    secretariatMouvements: [],
+    mobileMoneyTransactions: [],
+    boissonsCatalogue: [],
+    boissonsMouvements: [],
+    historiquePrix: [],
   });
 
+  // Automatically initialize database with demo data if it's completely empty
+  const seedInitialData = async () => {
+    try {
+      const batch = writeBatch(db);
+
+      INITIAL_STATE.secretariatCatalogue.forEach((item) => {
+        batch.set(doc(db, 'secretariatCatalogue', item.id), item);
+      });
+
+      INITIAL_STATE.secretariatMouvements.forEach((item) => {
+        batch.set(doc(db, 'secretariatMouvements', item.id), item);
+      });
+
+      INITIAL_STATE.mobileMoneyTransactions.forEach((item) => {
+        batch.set(doc(db, 'mobileMoneyTransactions', item.id), item);
+      });
+
+      INITIAL_STATE.boissonsCatalogue.forEach((item) => {
+        batch.set(doc(db, 'boissonsCatalogue', item.id), item);
+      });
+
+      INITIAL_STATE.boissonsMouvements.forEach((item) => {
+        batch.set(doc(db, 'boissonsMouvements', item.id), item);
+      });
+
+      INITIAL_STATE.historiquePrix.forEach((item) => {
+        batch.set(doc(db, 'historiquePrix', item.id), item);
+      });
+
+      await batch.commit();
+      console.log("Firestore initialized successfully with default template data.");
+    } catch (err) {
+      console.error("Auto-seeding Firestore failed: ", err);
+    }
+  };
+
   useEffect(() => {
-    localStorage.setItem('gestion_stock_state', JSON.stringify(state));
-  }, [state]);
+    // Perform safety check on boot
+    testConnection();
+
+    const collectionsList: { key: keyof AppState; path: string }[] = [
+      { key: 'secretariatCatalogue', path: 'secretariatCatalogue' },
+      { key: 'secretariatMouvements', path: 'secretariatMouvements' },
+      { key: 'mobileMoneyTransactions', path: 'mobileMoneyTransactions' },
+      { key: 'boissonsCatalogue', path: 'boissonsCatalogue' },
+      { key: 'boissonsMouvements', path: 'boissonsMouvements' },
+      { key: 'historiquePrix', path: 'historiquePrix' },
+    ];
+
+    let loadedCount = 0;
+    const initialFetchedData: Partial<AppState> = {};
+
+    const unsubscribers = collectionsList.map(({ key, path }) => {
+      return onSnapshot(collection(db, path), (snapshot) => {
+        const items: any[] = [];
+        snapshot.forEach((snapDoc) => {
+          items.push(snapDoc.data());
+        });
+
+        setState((prev) => ({
+          ...prev,
+          [key]: items,
+        }));
+
+        initialFetchedData[key] = items;
+        
+        if (loading) {
+          loadedCount++;
+          if (loadedCount === collectionsList.length) {
+            // Check if all collections are empty in the Firebase project
+            const allEmpty = collectionsList.every(col => (initialFetchedData[col.key]?.length || 0) === 0);
+            if (allEmpty) {
+              seedInitialData();
+            }
+            setLoading(false);
+          }
+        }
+      }, (error) => {
+        console.error(`Error loading collection ${path}: `, error);
+        // Ensure app doesn't stay stuck in loading if there are rule errors or empty DB
+        setLoading(false);
+      });
+    });
+
+    return () => {
+      unsubscribers.forEach(unsub => unsub());
+    };
+  }, []);
 
   // --- ACTIONS GLOBALES ---
 
-  const clearAllData = () => {
-    const emptyState: AppState = {
-      secretariatCatalogue: [],
-      secretariatMouvements: [],
-      mobileMoneyTransactions: [],
-      boissonsCatalogue: [],
-      boissonsMouvements: [],
-      historiquePrix: [],
-    };
-    setState(emptyState);
+  const clearAllData = async () => {
+    try {
+      const batch = writeBatch(db);
+      state.secretariatCatalogue.forEach(item => batch.delete(doc(db, 'secretariatCatalogue', item.id)));
+      state.secretariatMouvements.forEach(item => batch.delete(doc(db, 'secretariatMouvements', item.id)));
+      state.mobileMoneyTransactions.forEach(item => batch.delete(doc(db, 'mobileMoneyTransactions', item.id)));
+      state.boissonsCatalogue.forEach(item => batch.delete(doc(db, 'boissonsCatalogue', item.id)));
+      state.boissonsMouvements.forEach(item => batch.delete(doc(db, 'boissonsMouvements', item.id)));
+      state.historiquePrix.forEach(item => batch.delete(doc(db, 'historiquePrix', item.id)));
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'clear_all_data');
+    }
   };
 
-  const resetToSampleData = () => {
-    setState(INITIAL_STATE);
+  const resetToSampleData = async () => {
+    try {
+      await clearAllData();
+      await seedInitialData();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'reset_to_sample_data');
+    }
   };
 
-  const importData = (imported: Partial<AppState>) => {
-    setState((prev) => ({
-      secretariatCatalogue: imported.secretariatCatalogue || prev.secretariatCatalogue,
-      secretariatMouvements: imported.secretariatMouvements || prev.secretariatMouvements,
-      mobileMoneyTransactions: imported.mobileMoneyTransactions || prev.mobileMoneyTransactions,
-      boissonsCatalogue: imported.boissonsCatalogue || prev.boissonsCatalogue,
-      boissonsMouvements: imported.boissonsMouvements || prev.boissonsMouvements,
-      historiquePrix: imported.historiquePrix || prev.historiquePrix,
-    }));
+  const importData = async (imported: Partial<AppState>) => {
+    try {
+      const batch = writeBatch(db);
+
+      if (imported.secretariatCatalogue) {
+        imported.secretariatCatalogue.forEach(item => batch.set(doc(db, 'secretariatCatalogue', item.id), item));
+      }
+      if (imported.secretariatMouvements) {
+        imported.secretariatMouvements.forEach(item => batch.set(doc(db, 'secretariatMouvements', item.id), item));
+      }
+      if (imported.mobileMoneyTransactions) {
+        imported.mobileMoneyTransactions.forEach(item => batch.set(doc(db, 'mobileMoneyTransactions', item.id), item));
+      }
+      if (imported.boissonsCatalogue) {
+        imported.boissonsCatalogue.forEach(item => batch.set(doc(db, 'boissonsCatalogue', item.id), item));
+      }
+      if (imported.boissonsMouvements) {
+        imported.boissonsMouvements.forEach(item => batch.set(doc(db, 'boissonsMouvements', item.id), item));
+      }
+      if (imported.historiquePrix) {
+        imported.historiquePrix.forEach(item => batch.set(doc(db, 'historiquePrix', item.id), item));
+      }
+
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'import_data');
+    }
   };
 
   // --- MODULE 1: SECRETARIAT ACTIONS ---
 
-  const addSecretariatArticle = (article: Omit<SecretariatArticle, 'id' | 'createdAt'>) => {
+  const addSecretariatArticle = async (article: Omit<SecretariatArticle, 'id' | 'createdAt'>) => {
+    const id = 'sec-' + generateId();
     const newArticle: SecretariatArticle = {
       ...article,
-      id: 'sec-' + generateId(),
+      id,
       createdAt: new Date().toISOString(),
     };
-    setState((prev) => ({
-      ...prev,
-      secretariatCatalogue: [...prev.secretariatCatalogue, newArticle],
-    }));
-    return newArticle.id;
+    try {
+      await setDoc(doc(db, 'secretariatCatalogue', id), newArticle);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `secretariatCatalogue/${id}`);
+    }
+    return id;
   };
 
-  const updateSecretariatArticle = (id: string, updated: Partial<Omit<SecretariatArticle, 'id' | 'createdAt'>>) => {
-    setState((prev) => {
-      const updatedCatalogue = prev.secretariatCatalogue.map((art) => {
-        if (art.id === id) {
-          // Vérifier si le prix de vente a changé pour historiser
-          const prixChange = updated.prixActuel !== undefined && updated.prixActuel !== art.prixActuel;
-          let newPriceHistory: HistoriquePrix[] = [...prev.historiquePrix];
+  const updateSecretariatArticle = async (id: string, updated: Partial<Omit<SecretariatArticle, 'id' | 'createdAt'>>) => {
+    try {
+      const artOriginal = state.secretariatCatalogue.find(a => a.id === id);
+      if (!artOriginal) return;
 
-          if (prixChange && updated.prixActuel !== undefined) {
-            newPriceHistory.push({
-              id: 'hp-' + generateId(),
-              idArticleOuProduit: art.id,
-              nomArticleOuProduit: updated.nom || art.nom,
-              typeModule: 'secretariat',
-              typePrix: 'prix_vente',
-              ancienPrix: art.prixActuel,
-              nouveauPrix: updated.prixActuel,
-              dateChangement: new Date().toISOString(),
-            });
-          }
+      const prixChange = updated.prixActuel !== undefined && updated.prixActuel !== artOriginal.prixActuel;
 
-          return { ...art, ...updated };
-        }
-        return art;
-      });
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'secretariatCatalogue', id), updated);
 
-      // Trouver l'article et s'il a changé de prix, appliquer l'historique
-      const artOriginal = prev.secretariatCatalogue.find(a => a.id === id);
-      const prixChange = artOriginal && updated.prixActuel !== undefined && updated.prixActuel !== artOriginal.prixActuel;
-
-      if (prixChange && artOriginal && updated.prixActuel !== undefined) {
-        return {
-          ...prev,
-          secretariatCatalogue: updatedCatalogue,
-          historiquePrix: [
-            ...prev.historiquePrix,
-            {
-              id: 'hp-' + generateId(),
-              idArticleOuProduit: id,
-              nomArticleOuProduit: updated.nom || artOriginal.nom,
-              typeModule: 'secretariat',
-              typePrix: 'prix_vente',
-              ancienPrix: artOriginal.prixActuel,
-              nouveauPrix: updated.prixActuel,
-              dateChangement: new Date().toISOString(),
-            }
-          ]
+      if (prixChange && updated.prixActuel !== undefined) {
+        const histId = 'hp-' + generateId();
+        const histEntry: HistoriquePrix = {
+          id: histId,
+          idArticleOuProduit: id,
+          nomArticleOuProduit: updated.nom || artOriginal.nom,
+          typeModule: 'secretariat',
+          typePrix: 'prix_vente',
+          ancienPrix: artOriginal.prixActuel,
+          nouveauPrix: updated.prixActuel,
+          dateChangement: new Date().toISOString(),
         };
+        batch.set(doc(db, 'historiquePrix', histId), histEntry);
       }
 
-      return {
-        ...prev,
-        secretariatCatalogue: updatedCatalogue,
-      };
-    });
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `secretariatCatalogue/${id}`);
+    }
   };
 
-  const deleteSecretariatArticle = (id: string) => {
-    setState((prev) => ({
-      ...prev,
-      secretariatCatalogue: prev.secretariatCatalogue.filter((art) => art.id !== id),
-      // On conserve les mouvements historiques mais sans référence d'ID actif
-      secretariatMouvements: prev.secretariatMouvements.map((mov) =>
-        mov.idArticle === id ? { ...mov, idArticle: null } : mov
-      ),
-    }));
+  const deleteSecretariatArticle = async (id: string) => {
+    try {
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'secretariatCatalogue', id));
+
+      state.secretariatMouvements.forEach((mov) => {
+        if (mov.idArticle === id) {
+          batch.update(doc(db, 'secretariatMouvements', mov.id), { idArticle: null });
+        }
+      });
+
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `secretariatCatalogue/${id}`);
+    }
   };
 
-  const addSecretariatMouvement = (mouvement: Omit<SecretariatMouvement, 'id' | 'date'> & { date?: string }) => {
+  const addSecretariatMouvement = async (mouvement: Omit<SecretariatMouvement, 'id' | 'date'> & { date?: string }) => {
     const id = 'sec-mov-' + generateId();
     const dateStr = mouvement.date || new Date().toISOString();
     const newMouvement: SecretariatMouvement = {
@@ -501,82 +596,84 @@ export function useAppState() {
       date: dateStr,
     };
 
-    setState((prev) => {
-      // Si c'est une vente ou entrée d'un article de stock, on ajuste le stock
-      let updatedCatalogue = [...prev.secretariatCatalogue];
+    try {
+      const batch = writeBatch(db);
+      batch.set(doc(db, 'secretariatMouvements', id), newMouvement);
+
       if (mouvement.idArticle) {
-        updatedCatalogue = prev.secretariatCatalogue.map((art) => {
-          if (art.id === mouvement.idArticle) {
-            let modStock = 0;
-            if (mouvement.typeMouvement === 'vente_article') {
-              modStock = -mouvement.quantite;
-            } else if (mouvement.typeMouvement === 'entree_stock') {
-              modStock = mouvement.quantite;
-            }
-            return {
-              ...art,
-              quantiteEnStock: Math.max(0, art.quantiteEnStock + modStock),
-            };
+        const art = state.secretariatCatalogue.find((a) => a.id === mouvement.idArticle);
+        if (art) {
+          let modStock = 0;
+          if (mouvement.typeMouvement === 'vente_article') {
+            modStock = -mouvement.quantite;
+          } else if (mouvement.typeMouvement === 'entree_stock') {
+            modStock = mouvement.quantite;
           }
-          return art;
-        });
+          batch.update(doc(db, 'secretariatCatalogue', mouvement.idArticle), {
+            quantiteEnStock: Math.max(0, art.quantiteEnStock + modStock),
+          });
+        }
       }
 
-      return {
-        ...prev,
-        secretariatCatalogue: updatedCatalogue,
-        secretariatMouvements: [newMouvement, ...prev.secretariatMouvements],
-      };
-    });
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `secretariatMouvements/${id}`);
+    }
   };
 
   // --- MODULE 2: MOBILE MONEY ACTIONS ---
 
-  const addMobileMoneyTransaction = (tx: Omit<MobileMoneyTransaction, 'id' | 'date'> & { date?: string }) => {
+  const addMobileMoneyTransaction = async (tx: Omit<MobileMoneyTransaction, 'id' | 'date'> & { date?: string }) => {
+    const id = 'mm-tx-' + generateId();
     const newTx: MobileMoneyTransaction = {
       ...tx,
-      id: 'mm-tx-' + generateId(),
+      id,
       date: tx.date || new Date().toISOString(),
     };
-    setState((prev) => ({
-      ...prev,
-      mobileMoneyTransactions: [newTx, ...prev.mobileMoneyTransactions],
-    }));
+    try {
+      await setDoc(doc(db, 'mobileMoneyTransactions', id), newTx);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `mobileMoneyTransactions/${id}`);
+    }
   };
 
-  const deleteMobileMoneyTransaction = (id: string) => {
-    setState((prev) => ({
-      ...prev,
-      mobileMoneyTransactions: prev.mobileMoneyTransactions.filter((tx) => tx.id !== id),
-    }));
+  const deleteMobileMoneyTransaction = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'mobileMoneyTransactions', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `mobileMoneyTransactions/${id}`);
+    }
   };
 
   // --- MODULE 3: BOISSONS ACTIONS ---
 
-  const addBoissonProduit = (product: Omit<BoissonProduit, 'id' | 'createdAt'>) => {
+  const addBoissonProduit = async (product: Omit<BoissonProduit, 'id' | 'createdAt'>) => {
+    const id = 'b-' + generateId();
     const newProduct: BoissonProduit = {
       ...product,
-      id: 'b-' + generateId(),
+      id,
       createdAt: new Date().toISOString(),
     };
-    setState((prev) => ({
-      ...prev,
-      boissonsCatalogue: [...prev.boissonsCatalogue, newProduct],
-    }));
-    return newProduct.id;
+    try {
+      await setDoc(doc(db, 'boissonsCatalogue', id), newProduct);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `boissonsCatalogue/${id}`);
+    }
+    return id;
   };
 
-  const updateBoissonProduit = (id: string, updated: Partial<Omit<BoissonProduit, 'id' | 'createdAt'>>) => {
-    setState((prev) => {
-      const prodOriginal = prev.boissonsCatalogue.find(p => p.id === id);
-      if (!prodOriginal) return prev;
+  const updateBoissonProduit = async (id: string, updated: Partial<Omit<BoissonProduit, 'id' | 'createdAt'>>) => {
+    try {
+      const prodOriginal = state.boissonsCatalogue.find(p => p.id === id);
+      if (!prodOriginal) return;
 
-      const newHistoryEntries: HistoriquePrix[] = [];
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'boissonsCatalogue', id), updated);
 
-      // Vérifier changement prix de vente
       if (updated.prixVenteActuel !== undefined && updated.prixVenteActuel !== prodOriginal.prixVenteActuel) {
-        newHistoryEntries.push({
-          id: 'hp-' + generateId(),
+        const histId = 'hp-' + generateId();
+        batch.set(doc(db, 'historiquePrix', histId), {
+          id: histId,
           idArticleOuProduit: id,
           nomArticleOuProduit: updated.nom || prodOriginal.nom,
           typeModule: 'boissons',
@@ -587,10 +684,10 @@ export function useAppState() {
         });
       }
 
-      // Vérifier changement prix d'achat
       if (updated.prixAchatActuel !== undefined && updated.prixAchatActuel !== prodOriginal.prixAchatActuel) {
-        newHistoryEntries.push({
-          id: 'hp-' + generateId(),
+        const histId = 'hp-' + generateId();
+        batch.set(doc(db, 'historiquePrix', histId), {
+          id: histId,
           idArticleOuProduit: id,
           nomArticleOuProduit: updated.nom || prodOriginal.nom,
           typeModule: 'boissons',
@@ -601,33 +698,30 @@ export function useAppState() {
         });
       }
 
-      const updatedCatalogue = prev.boissonsCatalogue.map((prod) => {
-        if (prod.id === id) {
-          return { ...prod, ...updated };
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `boissonsCatalogue/${id}`);
+    }
+  };
+
+  const deleteBoissonProduit = async (id: string) => {
+    try {
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'boissonsCatalogue', id));
+
+      state.boissonsMouvements.forEach((mov) => {
+        if (mov.idProduit === id) {
+          batch.update(doc(db, 'boissonsMouvements', mov.id), { idProduit: 'deleted' });
         }
-        return prod;
       });
 
-      return {
-        ...prev,
-        boissonsCatalogue: updatedCatalogue,
-        historiquePrix: [...prev.historiquePrix, ...newHistoryEntries],
-      };
-    });
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `boissonsCatalogue/${id}`);
+    }
   };
 
-  const deleteBoissonProduit = (id: string) => {
-    setState((prev) => ({
-      ...prev,
-      boissonsCatalogue: prev.boissonsCatalogue.filter((prod) => prod.id !== id),
-      // On conserve les mouvements historiques mais on retire la liaison ID
-      boissonsMouvements: prev.boissonsMouvements.map((mov) =>
-        mov.idProduit === id ? { ...mov, idProduit: 'deleted' } : mov
-      ),
-    }));
-  };
-
-  const addBoissonMouvement = (mouvement: Omit<BoissonMouvement, 'id' | 'date'> & { date?: string }) => {
+  const addBoissonMouvement = async (mouvement: Omit<BoissonMouvement, 'id' | 'date'> & { date?: string }) => {
     const id = 'b-mov-' + generateId();
     const dateStr = mouvement.date || new Date().toISOString();
     const newMouvement: BoissonMouvement = {
@@ -636,34 +730,32 @@ export function useAppState() {
       date: dateStr,
     };
 
-    setState((prev) => {
-      // Ajustement automatique du stock
-      const updatedCatalogue = prev.boissonsCatalogue.map((prod) => {
-        if (prod.id === mouvement.idProduit) {
-          let modStock = 0;
-          if (mouvement.typeMouvement === 'vente') {
-            modStock = -mouvement.quantite;
-          } else if (mouvement.typeMouvement === 'entree') {
-            modStock = mouvement.quantite;
-          }
-          return {
-            ...prod,
-            quantiteEnStock: Math.max(0, prod.quantiteEnStock + modStock),
-          };
-        }
-        return prod;
-      });
+    try {
+      const batch = writeBatch(db);
+      batch.set(doc(db, 'boissonsMouvements', id), newMouvement);
 
-      return {
-        ...prev,
-        boissonsCatalogue: updatedCatalogue,
-        boissonsMouvements: [newMouvement, ...prev.boissonsMouvements],
-      };
-    });
+      const prod = state.boissonsCatalogue.find((p) => p.id === mouvement.idProduit);
+      if (prod) {
+        let modStock = 0;
+        if (mouvement.typeMouvement === 'vente') {
+          modStock = -mouvement.quantite;
+        } else if (mouvement.typeMouvement === 'entree') {
+          modStock = mouvement.quantite;
+        }
+        batch.update(doc(db, 'boissonsCatalogue', mouvement.idProduit), {
+          quantiteEnStock: Math.max(0, prod.quantiteEnStock + modStock),
+        });
+      }
+
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `boissonsMouvements/${id}`);
+    }
   };
 
   return {
     state,
+    loading,
     clearAllData,
     resetToSampleData,
     importData,

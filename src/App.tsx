@@ -22,6 +22,7 @@ export default function App() {
   
   const {
     state,
+    loading,
     clearAllData,
     resetToSampleData,
     importData,
@@ -36,6 +37,23 @@ export default function App() {
     deleteBoissonProduit,
     addBoissonMouvement,
   } = useAppState();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+        <div className="flex flex-col items-center gap-4 max-w-sm text-center">
+          <div className="w-12 h-12 rounded-2xl bg-blue-600/10 flex items-center justify-center animate-pulse">
+            <Briefcase size={24} className="text-blue-600 stroke-[2.5]" />
+          </div>
+          <div className="w-8 h-8 rounded-full border-3 border-blue-600 border-t-transparent animate-spin" />
+          <div>
+            <h2 className="text-sm font-bold text-slate-800">Chargement...</h2>
+            <p className="text-xs text-slate-400 mt-1">Connexion sécurisée et synchronisation avec Firebase Firestore</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // --- ACTIONS GLOBALES ASSIGNÉES DU DASHBOARD ---
   const handleRestockSecretariat = (id: string, qty: number) => {

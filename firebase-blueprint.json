@@ -1,0 +1,122 @@
+{
+  "entities": {
+    "SecretariatArticle": {
+      "title": "Secretariat Article",
+      "description": "An article in the secretariat catalog",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nom": { "type": "string" },
+        "categorie": { "type": "string", "enum": ["Cahier", "Fourniture", "Prestation", "Autre"] },
+        "typeCahier": { "type": "string", "enum": ["anglophone", "francophone", null] },
+        "pagination": { "type": "string" },
+        "prixActuel": { "type": "number" },
+        "quantiteEnStock": { "type": "number" },
+        "seuilAlerte": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "nom", "categorie", "prixActuel", "quantiteEnStock", "seuilAlerte", "createdAt"]
+    },
+    "SecretariatMouvement": {
+      "title": "Secretariat Mouvement",
+      "description": "A stock movement or service transaction in the secretariat",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "idArticle": { "type": "string" },
+        "nomPrestationOuArticle": { "type": "string" },
+        "typeMouvement": { "type": "string", "enum": ["vente_article", "prestation_service", "entree_stock"] },
+        "quantite": { "type": "number" },
+        "montant": { "type": "number" }
+      },
+      "required": ["id", "date", "nomPrestationOuArticle", "typeMouvement", "quantite", "montant"]
+    },
+    "MobileMoneyTransaction": {
+      "title": "Mobile Money Transaction",
+      "description": "A Mobile Money transaction record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "reseau": { "type": "string", "enum": ["Orange Money", "MTN Mobile Money", "Transfert de crédit"] },
+        "typeOperation": { "type": "string", "enum": ["dépôt", "retrait", "transfert"] },
+        "montant": { "type": "number" },
+        "commission": { "type": "number" }
+      },
+      "required": ["id", "date", "reseau", "typeOperation", "montant", "commission"]
+    },
+    "BoissonProduit": {
+      "title": "Boisson Produit",
+      "description": "A beverage product in the boissons catalog",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nom": { "type": "string" },
+        "prixAchatActuel": { "type": "number" },
+        "prixVenteActuel": { "type": "number" },
+        "quantiteEnStock": { "type": "number" },
+        "seuilAlerte": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "nom", "prixAchatActuel", "prixVenteActuel", "quantiteEnStock", "seuilAlerte", "createdAt"]
+    },
+    "BoissonMouvement": {
+      "title": "Boisson Mouvement",
+      "description": "A stock movement of beverage products",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "idProduit": { "type": "string" },
+        "nomProduit": { "type": "string" },
+        "quantite": { "type": "number" },
+        "typeMouvement": { "type": "string", "enum": ["vente", "entree"] },
+        "montant": { "type": "number" }
+      },
+      "required": ["id", "date", "idProduit", "nomProduit", "quantite", "typeMouvement", "montant"]
+    },
+    "HistoriquePrix": {
+      "title": "Historique Prix",
+      "description": "A record of price change history",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idArticleOuProduit": { "type": "string" },
+        "nomArticleOuProduit": { "type": "string" },
+        "typeModule": { "type": "string", "enum": ["secretariat", "boissons"] },
+        "typePrix": { "type": "string", "enum": ["prix_vente", "prix_achat"] },
+        "ancienPrix": { "type": "number" },
+        "nouveauPrix": { "type": "number" },
+        "dateChangement": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "idArticleOuProduit", "nomArticleOuProduit", "typeModule", "typePrix", "ancienPrix", "nouveauPrix", "dateChangement"]
+    }
+  },
+  "firestore": {
+    "/secretariatCatalogue/{id}": {
+      "schema": "SecretariatArticle",
+      "description": "The secretariat articles catalog"
+    },
+    "/secretariatMouvements/{id}": {
+      "schema": "SecretariatMouvement",
+      "description": "The secretariat movements history"
+    },
+    "/mobileMoneyTransactions/{id}": {
+      "schema": "MobileMoneyTransaction",
+      "description": "The Mobile Money transactions history"
+    },
+    "/boissonsCatalogue/{id}": {
+      "schema": "BoissonProduit",
+      "description": "The beverages catalog"
+    },
+    "/boissonsMouvements/{id}": {
+      "schema": "BoissonMouvement",
+      "description": "The beverages movements history"
+    },
+    "/historiquePrix/{id}": {
+      "schema": "HistoriquePrix",
+      "description": "The history of price changes"
+    }
+  }
+}
