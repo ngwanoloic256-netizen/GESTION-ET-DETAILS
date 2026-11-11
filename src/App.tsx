@@ -16,6 +16,8 @@ import Parametres, { SettingsTab } from './components/platform/Parametres';
 import Produits from './components/studio/Produits';
 import Studio from './components/studio/Studio';
 import { useCatalogue } from './studio/useCatalogue';
+import Campagnes from './components/ads/Campagnes';
+import { useCampagnes } from './ads/useCampagnes';
 import {
   LayoutDashboard,
   FileText,
@@ -34,11 +36,12 @@ import {
   Settings,
   Package,
   Sparkles,
+  Megaphone,
 } from 'lucide-react';
 
 type GestionTab = 'dashboard' | 'secretariat' | 'mobile_money' | 'boissons' | 'catalogue' | 'reports';
-type Tab = 'accueil' | 'produits' | 'studio' | 'parametres' | GestionTab;
-const PLATFORM_TABS: Tab[] = ['accueil', 'produits', 'studio', 'parametres'];
+type Tab = 'accueil' | 'produits' | 'studio' | 'campagnes' | 'parametres' | GestionTab;
+const PLATFORM_TABS: Tab[] = ['accueil', 'produits', 'studio', 'campagnes', 'parametres'];
 
 const NEW_ORG = '__new__';
 
@@ -124,6 +127,7 @@ function Workspace({ session, theme, onToggleTheme, onCreateOrg }: WorkspaceProp
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('espace');
   const [produitStudio, setProduitStudio] = useState<string | null>(null);
   const catalogue = useCatalogue(organisation.id);
+  const campagnes = useCampagnes(organisation.id);
 
   const {
     state,
@@ -152,6 +156,7 @@ function Workspace({ session, theme, onToggleTheme, onCreateOrg }: WorkspaceProp
     { id: 'accueil', label: 'Accueil', short: 'Accueil', icon: Home },
     { id: 'produits', label: 'Produits', short: 'Produits', icon: Package },
     { id: 'studio', label: 'Studio', short: 'Studio', icon: Sparkles },
+    { id: 'campagnes', label: 'Campagnes', short: 'Campagnes', icon: Megaphone },
     ...(gestion
       ? ([
           { id: 'dashboard', label: 'Tableau de bord', short: 'Tableau de bord', icon: LayoutDashboard },
@@ -390,6 +395,17 @@ function Workspace({ session, theme, onToggleTheme, onCreateOrg }: WorkspaceProp
             produitInitial={produitStudio}
             onOuvrirProduits={() => setActiveTab('produits')}
             onOuvrirMarque={() => openSettings('marque')}
+          />
+        )}
+
+        {tab === 'campagnes' && (
+          <Campagnes
+            organisation={organisation}
+            catalogue={catalogue}
+            data={campagnes}
+            isAdmin={isAdmin}
+            onOuvrirStudio={() => setActiveTab('studio')}
+            onJournal={logEvent}
           />
         )}
 

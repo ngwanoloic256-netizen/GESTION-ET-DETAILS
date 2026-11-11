@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Copy, Download, Package, Save, Sparkles, Trash2 } from 'lucide-react';
 import { Catalogue, ErreurIA, genererTextes } from '../../studio/useCatalogue';
 import { chargerImage } from '../../studio/images';
-import { dessiner, exporterPng, FORMATS, MODELES, policesPretes, Spec, telecharger } from '../../studio/render';
+import { construireSpec, dessiner, exporterPng, FORMATS, MODELES, policesPretes, Spec, telecharger } from '../../studio/render';
 import { Creation, MARQUE_PAR_DEFAUT, ModeleId, Organisation, Produit, PropositionIA, TextesCreation } from '../../platform/types';
 import { formatFCFA } from '../../utils';
 
@@ -115,24 +115,10 @@ export default function Studio({ organisation, catalogue, isAdmin, produitInitia
     };
   }, [marque.logo]);
 
-  const spec: Spec | null = useMemo(() => {
-    if (!produit || !textes) return null;
-    return {
-      modele,
-      accroche: textes.accroche,
-      sousTitre: textes.sousTitre,
-      prix: textes.afficherPrix ? formatFCFA(produit.prixPromo ?? produit.prix) : '',
-      ancienPrix: textes.afficherPrix && produit.prixPromo !== null ? formatFCFA(produit.prix) : '',
-      badge: textes.badge,
-      cta: textes.cta,
-      contact: organisation.whatsapp,
-      marque: organisation.nom,
-      primaire: marque.couleurPrimaire,
-      secondaire: marque.couleurSecondaire,
-      photo,
-      logo,
-    };
-  }, [produit, textes, modele, photo, logo, organisation.whatsapp, organisation.nom, marque.couleurPrimaire, marque.couleurSecondaire]);
+  const spec: Spec | null = useMemo(
+    () => (produit && textes ? construireSpec({ produit, textes, modele, organisation, photo, logo }) : null),
+    [produit, textes, modele, photo, logo, organisation],
+  );
 
   useEffect(() => {
     if (pret && spec && canvasRef.current) dessiner(canvasRef.current, format, spec);

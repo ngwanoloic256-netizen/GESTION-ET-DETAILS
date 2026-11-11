@@ -1,7 +1,8 @@
 // Moteur de visuels du studio. Les créations sont composées ici, dans un canvas,
 // à partir de la vraie photo du produit : le produit n'est jamais redessiné,
 // et les textes et les prix restent exactement ceux saisis par le commerçant.
-import { ModeleId } from '../platform/types';
+import { MARQUE_PAR_DEFAUT, ModeleId, Organisation, Produit, TextesCreation } from '../platform/types';
+import { formatFCFA } from '../utils';
 
 export interface Format {
   id: 'carre' | 'portrait' | 'story' | 'paysage';
@@ -456,6 +457,34 @@ function modeleEpure(ctx: CanvasRenderingContext2D, f: Format, spec: Spec, s: nu
   zonePhoto(ctx, spec, m, hautSur, largeur, yTexte - 40 * s - hautSur, 40 * s, '#e7e2d9');
   etiquette(m + 28 * s, hautSur + 28 * s);
   dessinerPile(blocs, m, yTexte, largeur);
+}
+
+/** Construit la description d'un visuel à partir du produit, des textes et de la marque. */
+export function construireSpec(o: {
+  produit: Produit;
+  textes: TextesCreation;
+  modele: ModeleId;
+  organisation: Organisation;
+  photo: HTMLImageElement | null;
+  logo: HTMLImageElement | null;
+}): Spec {
+  const marque = o.organisation.marque ?? MARQUE_PAR_DEFAUT;
+  const { produit, textes } = o;
+  return {
+    modele: o.modele,
+    accroche: textes.accroche,
+    sousTitre: textes.sousTitre,
+    prix: textes.afficherPrix ? formatFCFA(produit.prixPromo ?? produit.prix) : '',
+    ancienPrix: textes.afficherPrix && produit.prixPromo !== null ? formatFCFA(produit.prix) : '',
+    badge: textes.badge,
+    cta: textes.cta,
+    contact: o.organisation.whatsapp,
+    marque: o.organisation.nom,
+    primaire: marque.couleurPrimaire,
+    secondaire: marque.couleurSecondaire,
+    photo: o.photo,
+    logo: o.logo,
+  };
 }
 
 /** Compose la création dans le canvas, aux dimensions exactes du format. */

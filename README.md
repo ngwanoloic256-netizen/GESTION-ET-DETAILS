@@ -12,7 +12,7 @@ cahier conceptuel. Ce dépôt en est l'implémentation, phase par phase.
 |---|---|
 | 1. Fondations — comptes, organisations, rôles, onboarding, journal | **Fait** |
 | 2. Creative Studio — catalogue produits, identité de marque, visuels en 3 modèles × 4 formats, textes par IA, export PNG | **Fait** (retouche d'image et vidéo par IA : à faire) |
-| 3. Meta Ads MVP | À faire |
+| 3. Meta Ads MVP — préparation de campagne, fiche de lancement, suivi des résultats | **En partie** : le lancement se fait encore à la main dans Meta Ads Manager. Le lancement par API attend une application développeur Meta. |
 | 4. Social Manager | À faire |
 | 5. CRM & Analytics | À faire |
 | 6. Monétisation | À faire (le champ `plan` existe et est verrouillé côté client) |
@@ -32,6 +32,7 @@ organisations/{orgId}/journal/{id}       journal d'activité, en ajout seul
 organisations/{orgId}/produits/{id}      catalogue : nom, prix, promo, description, variantes, livraison, photos
 organisations/{orgId}/medias/{id}        photos de produits (JPEG réduit, en data URL)
 organisations/{orgId}/creations/{id}     créations enregistrées du studio
+organisations/{orgId}/campagnes/{id}     campagnes : réglages, statut, résultats saisis
 organisations/{orgId}/<collection>/{id}  données du module de gestion de stock et de caisse
 invitations/{orgId}_{email}              invitation en attente
 ```

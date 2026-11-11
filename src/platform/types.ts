@@ -184,6 +184,56 @@ export interface Creation extends TextesCreation {
   createdAt: string;
 }
 
+// ---------- Campagnes publicitaires (phase 3) ----------
+
+export type ObjectifCampagne = 'messages' | 'trafic' | 'ventes' | 'prospects' | 'notoriete';
+export type StatutCampagne = 'brouillon' | 'lancee' | 'terminee';
+
+/** Résultats saisis par le commerçant (ou, plus tard, synchronisés depuis Meta). */
+export interface ResultatsCampagne {
+  depense: number;
+  messages: number;
+  commandes: number;
+  chiffreAffaires: number;
+  majLe: string;
+}
+
+export interface Campagne {
+  id: string;
+  nom: string;
+  statut: StatutCampagne;
+  creationId: string;
+  produitId: string;
+  objectif: ObjectifCampagne;
+  /** Numéro WhatsApp ou lien vers lequel la publicité envoie. */
+  destination: string;
+  pays: string;
+  villes: string;
+  ageMin: number;
+  ageMax: number;
+  genre: 'tous' | 'femmes' | 'hommes';
+  interets: string;
+  placements: 'auto' | 'facebook' | 'instagram';
+  budgetJour: number;
+  dureeJours: number;
+  titre: string;
+  texte: string;
+  lanceeLe: string | null;
+  termineeLe: string | null;
+  resultats: ResultatsCampagne | null;
+  creePar: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const OBJECTIFS: { id: ObjectifCampagne; label: string; description: string; meta: string }[] = [
+  { id: 'messages', label: 'Recevoir des messages', description: 'Les clients vous écrivent sur WhatsApp', meta: 'Interactions → Applications de messagerie → WhatsApp' },
+  { id: 'ventes', label: 'Vendre', description: 'Pour une boutique en ligne avec paiement', meta: 'Ventes' },
+  { id: 'trafic', label: 'Attirer des visites', description: 'Vers un site, une page ou un catalogue', meta: 'Trafic' },
+  { id: 'prospects', label: 'Collecter des contacts', description: 'Un formulaire rempli sur Facebook', meta: 'Prospects → Formulaires instantanés' },
+  { id: 'notoriete', label: 'Se faire connaître', description: 'Montrer la marque au plus de monde possible', meta: 'Notoriété' },
+];
+
 export interface PropositionIA {
   angle: string;
   accroche: string;

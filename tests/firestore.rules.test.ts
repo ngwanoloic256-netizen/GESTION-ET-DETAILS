@@ -128,9 +128,9 @@ describe('isolation des données', () => {
     await assertFails(deleteDoc(doc(chloe, 'organisations', 'orgA', 'boissonsCatalogue', 'p1')));
   });
 
-  it('le catalogue et les créations du studio suivent les mêmes règles', async () => {
+  it('le catalogue, les créations et les campagnes suivent les mêmes règles', async () => {
     const bob = as('bob', 'bob@example.com');
-    for (const col of ['produits', 'medias', 'creations']) {
+    for (const col of ['produits', 'medias', 'creations', 'campagnes']) {
       await assertSucceeds(setDoc(doc(bob, 'organisations', 'orgA', col, 'x1'), { id: 'x1' }));
       await assertFails(getDocs(collection(as('chloe', 'chloe@example.com'), 'organisations', 'orgA', col)));
       await assertFails(deleteDoc(doc(bob, 'organisations', 'orgA', col, 'x1')));
