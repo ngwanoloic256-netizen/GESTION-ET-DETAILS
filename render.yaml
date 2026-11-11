@@ -1,0 +1,15 @@
+# Mise en ligne sur Render (render.com) : « New » → « Blueprint » → choisir ce dépôt et sa branche.
+services:
+  - type: web
+    name: multi-service-pro
+    runtime: node
+    plan: free
+    buildCommand: bun install --frozen-lockfile && bun run build
+    startCommand: npm start
+    healthCheckPath: /api/ai/etat
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Clé Gemini pour les textes par IA : à saisir dans Render, jamais dans le dépôt.
+      - key: GEMINI_API_KEY
+        sync: false
