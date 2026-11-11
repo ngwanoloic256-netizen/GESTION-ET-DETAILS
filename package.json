@@ -4,14 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port=3000 --host=0.0.0.0",
-    "build": "vite build",
+    "dev": "tsx server.ts",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=esm --packages=external --outfile=server.js",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test:rules": "firebase emulators:exec --only firestore --project demo-test \"vitest run\"",
     "emulators": "firebase emulators:start --only firestore,auth --project demo-test",
-    "dev:local": "VITE_USE_EMULATORS=true vite --port=3000 --host=0.0.0.0"
+    "dev:local": "VITE_USE_EMULATORS=true FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 AI_STUB=true tsx server.ts",
+    "start": "NODE_ENV=production node server.js"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -21,6 +22,7 @@
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "firebase": "^12.16.0",
+    "jose": "^6.2.17",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "react": "^19.0.1",

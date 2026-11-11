@@ -121,11 +121,13 @@ service cloud.firestore {
       match /{collectionName}/{docId} {
         allow read, create, update: if collectionName in [
             'secretariatCatalogue', 'secretariatMouvements', 'mobileMoneyTransactions',
-            'boissonsCatalogue', 'boissonsMouvements', 'historiquePrix'
+            'boissonsCatalogue', 'boissonsMouvements', 'historiquePrix',
+            'produits', 'medias', 'creations'
           ] && isMember(orgId);
         allow delete: if collectionName in [
             'secretariatCatalogue', 'secretariatMouvements', 'mobileMoneyTransactions',
-            'boissonsCatalogue', 'boissonsMouvements', 'historiquePrix'
+            'boissonsCatalogue', 'boissonsMouvements', 'historiquePrix',
+            'produits', 'medias', 'creations'
           ] && isAdmin(orgId);
       }
     }

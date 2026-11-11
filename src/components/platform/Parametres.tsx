@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { Building2, History, LogOut, Mail, Trash2, UserPlus, Users } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Building2, History, LogOut, Mail, Palette, Trash2, UserPlus, Users } from 'lucide-react';
 import { Session } from '../../platform/useSession';
-import { Member, PAYS, ROLE_LABELS, SECTEURS } from '../../platform/types';
+import { MARQUE_PAR_DEFAUT, Marque, Member, PAYS, ROLE_LABELS, SECTEURS, TONS } from '../../platform/types';
+import { preparerLogo } from '../../studio/images';
 import { formatJournalDate } from './format';
 
-export type SettingsTab = 'espace' | 'equipe' | 'journal';
+export type SettingsTab = 'espace' | 'marque' | 'equipe' | 'journal';
 
 interface Props {
   session: Session;
@@ -21,6 +22,7 @@ export default function Parametres({ session, tab, onTabChange }: Props) {
   const { isAdmin } = session;
   const tabs = [
     { id: 'espace' as const, label: 'Espace', icon: Building2, visible: true },
+    { id: 'marque' as const, label: 'Marque', icon: Palette, visible: true },
     { id: 'equipe' as const, label: 'Équipe', icon: Users, visible: true },
     { id: 'journal' as const, label: 'Journal', icon: History, visible: isAdmin },
   ].filter((t) => t.visible);
@@ -28,14 +30,14 @@ export default function Parametres({ session, tab, onTabChange }: Props) {
 
   return (
     <div className="space-y-5">
-      <div className="flex gap-1.5">
+      <div className="flex gap-1.5 overflow-x-auto scrollbar-none">
         {tabs.map((t) => {
           const Icon = t.icon;
           return (
             <button
               key={t.id}
               onClick={() => onTabChange(t.id)}
-              className={`px-3.5 py-2 rounded-xl text-sm font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
+              className={`px-3.5 py-2 rounded-xl text-sm font-bold flex items-center gap-1.5 cursor-pointer transition-all shrink-0 ${
                 current === t.id ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300'
               }`}
             >
@@ -46,6 +48,7 @@ export default function Parametres({ session, tab, onTabChange }: Props) {
       </div>
 
       {current === 'espace' && <EspaceTab session={session} />}
+      {current === 'marque' && <MarqueTab session={session} />}
       {current === 'equipe' && <EquipeTab session={session} />}
       {current === 'journal' && <JournalTab session={session} />}
     </div>
@@ -214,6 +217,123 @@ function EspaceTab({ session }: { session: Session }) {
         </div>
       )}
     </div>
+  );
+}
+
+function MarqueTab({ session }: { session: Session }) {
+  const { organisation, isAdmin } = session;
+  const enregistree: Marque = organisation?.marque ?? MARQUE_PAR_DEFAUT;
+  const [form, setForm] = useState<Marque>(enregistree);
+  const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setForm(organisation?.marque ?? MARQUE_PAR_DEFAUT);
+    setStatus('idle');
+  }, [organisation?.id]);
+
+  if (!organisation) return null;
+  const dirty = (Object.keys(form) as (keyof Marque)[]).some((k) => form[k] !== enregistree[k]);
+
+  const choisirLogo = async (file: File | undefined) => {
+    if (!file) return;
+    setError(null);
+    try {
+      setForm({ ...form, logo: await preparerLogo(file) });
+    } catch (err: any) {
+      setError(err?.message || 'Logo illisible.');
+    }
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStatus('saving');
+    try {
+      await session.updateOrganisation({ marque: { ...form, slogan: form.slogan.trim() } }, 'Identité de marque modifiée');
+      setStatus('saved');
+    } catch (err) {
+      console.error(err);
+      setStatus('error');
+    }
+  };
+
+  return (
+    <form onSubmit={save} className={`${cardClass} space-y-4`}>
+      <div>
+        <h3 className="text-sm font-black text-slate-800">Identité de marque</h3>
+        <p className="text-xs text-slate-500 mt-1">Appliquée à tous les visuels du studio et au ton des textes proposés par l'assistant.</p>
+      </div>
+      {!isAdmin && <p className="text-xs text-slate-500">Seuls les administrateurs peuvent modifier l'identité de marque.</p>}
+
+      <div>
+        <span className={labelClass}>Logo</span>
+        <div className="flex items-center gap-3">
+          <div className="w-20 h-20 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden">
+            {form.logo ? <img src={form.logo} alt="Logo" className="max-w-full max-h-full" /> : <span className="text-xs text-slate-400">Aucun</span>}
+          </div>
+          {isAdmin && (
+            <div className="flex flex-col items-start gap-1.5">
+              <button type="button" onClick={() => fileRef.current?.click()} className="px-3 py-2 border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold text-slate-700 cursor-pointer">
+                {form.logo ? 'Changer le logo' : 'Importer un logo'}
+              </button>
+              {form.logo && (
+                <button type="button" onClick={() => setForm({ ...form, logo: '' })} className="text-xs font-bold text-slate-500 hover:text-rose-600 cursor-pointer">
+                  Retirer
+                </button>
+              )}
+            </div>
+          )}
+          <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => choisirLogo(e.target.files?.[0])} />
+        </div>
+        <p className="text-xs text-slate-500 mt-2">PNG à fond transparent de préférence. Sans logo, le nom de l'espace est affiché.</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className={labelClass} htmlFor="marque-c1">Couleur principale</label>
+          <div className="flex items-center gap-2">
+            <input id="marque-c1" type="color" disabled={!isAdmin} className="w-11 h-11 rounded-lg border border-slate-200 cursor-pointer bg-white p-1" value={form.couleurPrimaire} onChange={(e) => setForm({ ...form, couleurPrimaire: e.target.value })} />
+            <span className="text-sm text-slate-600 font-mono uppercase">{form.couleurPrimaire}</span>
+          </div>
+        </div>
+        <div>
+          <label className={labelClass} htmlFor="marque-c2">Couleur d'accent</label>
+          <div className="flex items-center gap-2">
+            <input id="marque-c2" type="color" disabled={!isAdmin} className="w-11 h-11 rounded-lg border border-slate-200 cursor-pointer bg-white p-1" value={form.couleurSecondaire} onChange={(e) => setForm({ ...form, couleurSecondaire: e.target.value })} />
+            <span className="text-sm text-slate-600 font-mono uppercase">{form.couleurSecondaire}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className={labelClass} htmlFor="marque-ton">Ton des textes</label>
+          <select id="marque-ton" className={inputClass} disabled={!isAdmin} value={form.ton} onChange={(e) => setForm({ ...form, ton: e.target.value })}>
+            {TONS.map((t) => (
+              <option key={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className={labelClass} htmlFor="marque-slogan">Slogan (facultatif)</label>
+          <input id="marque-slogan" className={inputClass} disabled={!isAdmin} maxLength={120} value={form.slogan} onChange={(e) => setForm({ ...form, slogan: e.target.value })} />
+        </div>
+      </div>
+
+      {error && <p className="text-sm text-rose-600 font-medium">{error}</p>}
+
+      {isAdmin && (
+        <div className="flex items-center gap-3">
+          <button type="submit" disabled={!dirty || status === 'saving'} className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-sm font-bold cursor-pointer">
+            {status === 'saving' ? 'Enregistrement…' : 'Enregistrer'}
+          </button>
+          {status === 'saved' && !dirty && <span className="text-sm text-emerald-600 font-medium">Identité enregistrée</span>}
+          {status === 'error' && <span className="text-sm text-rose-600 font-medium">Échec de l'enregistrement, réessayez.</span>}
+        </div>
+      )}
+    </form>
   );
 }
 

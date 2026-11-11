@@ -6,11 +6,14 @@ import { formatJournalDate } from './format';
 
 interface Props {
   session: Session;
-  onOpenSettings: (tab: 'espace' | 'equipe' | 'journal') => void;
+  nbProduits: number;
+  nbCreations: number;
+  onOpenSettings: (tab: 'espace' | 'marque' | 'equipe' | 'journal') => void;
+  onOpenTab: (tab: 'produits' | 'studio') => void;
   onOpenGestion: () => void;
 }
 
-export default function Accueil({ session, onOpenSettings, onOpenGestion }: Props) {
+export default function Accueil({ session, nbProduits, nbCreations, onOpenSettings, onOpenGestion, onOpenTab }: Props) {
   const { organisation, role, isAdmin, members, orgInvitations, journal, user } = session;
   if (!organisation) return null;
 
@@ -21,6 +24,13 @@ export default function Accueil({ session, onOpenSettings, onOpenGestion }: Prop
       label: 'Renseigner la ville et le numéro WhatsApp des commandes',
       action: isAdmin ? () => onOpenSettings('espace') : undefined,
     },
+    { fait: nbProduits > 0, label: 'Ajouter un premier produit avec sa photo', action: () => onOpenTab('produits') },
+    {
+      fait: !!organisation.marque,
+      label: 'Régler les couleurs et le logo de votre marque',
+      action: isAdmin ? () => onOpenSettings('marque') : undefined,
+    },
+    { fait: nbCreations > 0, label: 'Créer et enregistrer un premier visuel', action: () => onOpenTab('studio') },
     {
       fait: members.length + orgInvitations.length > 1,
       label: 'Inviter un collaborateur',

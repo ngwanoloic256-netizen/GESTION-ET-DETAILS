@@ -13,6 +13,9 @@ import Login from './components/platform/Login';
 import Onboarding from './components/platform/Onboarding';
 import Accueil from './components/platform/Accueil';
 import Parametres, { SettingsTab } from './components/platform/Parametres';
+import Produits from './components/studio/Produits';
+import Studio from './components/studio/Studio';
+import { useCatalogue } from './studio/useCatalogue';
 import {
   LayoutDashboard,
   FileText,
@@ -29,10 +32,13 @@ import {
   Moon,
   Home,
   Settings,
+  Package,
+  Sparkles,
 } from 'lucide-react';
 
 type GestionTab = 'dashboard' | 'secretariat' | 'mobile_money' | 'boissons' | 'catalogue' | 'reports';
-type Tab = 'accueil' | 'parametres' | GestionTab;
+type Tab = 'accueil' | 'produits' | 'studio' | 'parametres' | GestionTab;
+const PLATFORM_TABS: Tab[] = ['accueil', 'produits', 'studio', 'parametres'];
 
 const NEW_ORG = '__new__';
 
@@ -116,6 +122,8 @@ function Workspace({ session, theme, onToggleTheme, onCreateOrg }: WorkspaceProp
 
   const [activeTab, setActiveTab] = useState<Tab>('accueil');
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('espace');
+  const [produitStudio, setProduitStudio] = useState<string | null>(null);
+  const catalogue = useCatalogue(organisation.id);
 
   const {
     state,
@@ -138,10 +146,12 @@ function Workspace({ session, theme, onToggleTheme, onCreateOrg }: WorkspaceProp
   } = useAppState(gestion ? organisation.id : null);
 
   // Un onglet de gestion ne reste pas ouvert si le module vient d'être désactivé.
-  const tab: Tab = !gestion && activeTab !== 'accueil' && activeTab !== 'parametres' ? 'accueil' : activeTab;
+  const tab: Tab = !gestion && !PLATFORM_TABS.includes(activeTab) ? 'accueil' : activeTab;
 
   const tabs: { id: Tab; label: string; short: string; icon: typeof Home }[] = [
     { id: 'accueil', label: 'Accueil', short: 'Accueil', icon: Home },
+    { id: 'produits', label: 'Produits', short: 'Produits', icon: Package },
+    { id: 'studio', label: 'Studio', short: 'Studio', icon: Sparkles },
     ...(gestion
       ? ([
           { id: 'dashboard', label: 'Tableau de bord', short: 'Tableau de bord', icon: LayoutDashboard },
@@ -226,7 +236,7 @@ function Workspace({ session, theme, onToggleTheme, onCreateOrg }: WorkspaceProp
     setActiveTab('parametres');
   };
 
-  const gestionTabActive = tab !== 'accueil' && tab !== 'parametres';
+  const gestionTabActive = !PLATFORM_TABS.includes(tab);
 
   return (
     <div className="min-h-screen bg-slate-50/50 flex flex-col font-sans" id="app-container">
@@ -348,7 +358,40 @@ function Workspace({ session, theme, onToggleTheme, onCreateOrg }: WorkspaceProp
       </div>
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6">
-        {tab === 'accueil' && <Accueil session={session} onOpenSettings={openSettings} onOpenGestion={() => setActiveTab('dashboard')} />}
+        {tab === 'accueil' && (
+          <Accueil
+            session={session}
+            nbProduits={catalogue.produits.length}
+            nbCreations={catalogue.creations.length}
+            onOpenSettings={openSettings}
+            onOpenGestion={() => setActiveTab('dashboard')}
+            onOpenTab={setActiveTab}
+          />
+        )}
+
+        {tab === 'produits' && (
+          <Produits
+            catalogue={catalogue}
+            isAdmin={isAdmin}
+            onJournal={logEvent}
+            onCreerVisuel={(id) => {
+              setProduitStudio(id);
+              setActiveTab('studio');
+            }}
+          />
+        )}
+
+        {tab === 'studio' && (
+          <Studio
+            key={produitStudio ?? 'studio'}
+            organisation={organisation}
+            catalogue={catalogue}
+            isAdmin={isAdmin}
+            produitInitial={produitStudio}
+            onOuvrirProduits={() => setActiveTab('produits')}
+            onOuvrirMarque={() => openSettings('marque')}
+          />
+        )}
 
         {tab === 'parametres' && <Parametres session={session} tab={settingsTab} onTabChange={setSettingsTab} />}
 

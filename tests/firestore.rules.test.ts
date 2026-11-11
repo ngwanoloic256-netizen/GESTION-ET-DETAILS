@@ -128,6 +128,16 @@ describe('isolation des données', () => {
     await assertFails(deleteDoc(doc(chloe, 'organisations', 'orgA', 'boissonsCatalogue', 'p1')));
   });
 
+  it('le catalogue et les créations du studio suivent les mêmes règles', async () => {
+    const bob = as('bob', 'bob@example.com');
+    for (const col of ['produits', 'medias', 'creations']) {
+      await assertSucceeds(setDoc(doc(bob, 'organisations', 'orgA', col, 'x1'), { id: 'x1' }));
+      await assertFails(getDocs(collection(as('chloe', 'chloe@example.com'), 'organisations', 'orgA', col)));
+      await assertFails(deleteDoc(doc(bob, 'organisations', 'orgA', col, 'x1')));
+      await assertSucceeds(deleteDoc(doc(as('awa', 'awa@example.com'), 'organisations', 'orgA', col, 'x1')));
+    }
+  });
+
   it('une collection inconnue est refusée même pour un membre', async () => {
     const awa = as('awa', 'awa@example.com');
     await assertFails(setDoc(doc(awa, 'organisations', 'orgA', 'secrets', 's1'), { a: 1 }));

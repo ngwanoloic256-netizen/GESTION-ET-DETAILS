@@ -23,10 +23,31 @@ export interface Organisation {
   /** Modifiable uniquement côté serveur (facturation) : les règles Firestore le verrouillent. */
   plan: Plan;
   modules: OrganisationModules;
+  /** Identité de marque utilisée par le studio de création. */
+  marque?: Marque;
   ownerUid: string;
   createdAt: string;
   updatedAt: string;
 }
+
+export interface Marque {
+  couleurPrimaire: string;
+  couleurSecondaire: string;
+  ton: string;
+  slogan: string;
+  /** Logo en data URL (PNG réduit), ou chaîne vide. */
+  logo: string;
+}
+
+export const MARQUE_PAR_DEFAUT: Marque = {
+  couleurPrimaire: '#1d4ed8',
+  couleurSecondaire: '#f59e0b',
+  ton: 'Chaleureux et direct',
+  slogan: '',
+  logo: '',
+};
+
+export const TONS = ['Chaleureux et direct', 'Professionnel', 'Dynamique et jeune', 'Haut de gamme'];
 
 export interface Member {
   uid: string;
@@ -112,3 +133,62 @@ export const COLLECTIONS_METIER = [
   'boissonsMouvements',
   'historiquePrix',
 ] as const;
+
+// ---------- Catalogue et studio de création (phase 2) ----------
+
+export interface Produit {
+  id: string;
+  nom: string;
+  prix: number;
+  /** Prix promotionnel ; null hors promotion. */
+  prixPromo: number | null;
+  description: string;
+  /** Tailles, couleurs, variantes : texte libre. */
+  variantes: string;
+  /** Zones et conditions de livraison : texte libre. */
+  livraison: string;
+  /** Identifiants des photos (documents de la collection medias). */
+  photos: string[];
+  /** Miniature de la première photo, en data URL, pour les listes. */
+  vignette: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Media {
+  id: string;
+  dataUrl: string;
+  largeur: number;
+  hauteur: number;
+  createdAt: string;
+}
+
+export type ModeleId = 'affiche' | 'promo' | 'epure';
+
+export interface TextesCreation {
+  accroche: string;
+  sousTitre: string;
+  cta: string;
+  badge: string;
+  afficherPrix: boolean;
+  legende: string;
+}
+
+export interface Creation extends TextesCreation {
+  id: string;
+  produitId: string;
+  nomProduit: string;
+  photoId: string | null;
+  modele: ModeleId;
+  creePar: string;
+  createdAt: string;
+}
+
+export interface PropositionIA {
+  angle: string;
+  accroche: string;
+  sousTitre: string;
+  cta: string;
+  legende: string;
+  hashtags: string[];
+}

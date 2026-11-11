@@ -341,7 +341,7 @@ export function useSession() {
   };
 
   const updateOrganisation = async (
-    changes: Partial<Pick<Organisation, 'nom' | 'type' | 'secteur' | 'pays' | 'ville' | 'devise' | 'langue' | 'whatsapp' | 'modules'>>,
+    changes: Partial<Pick<Organisation, 'nom' | 'type' | 'secteur' | 'pays' | 'ville' | 'devise' | 'langue' | 'whatsapp' | 'modules' | 'marque'>>,
     description = 'Paramètres de l’espace modifiés',
   ) => {
     if (!activeOrgId) return;
