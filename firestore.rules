@@ -1,41 +1,162 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Global Safety Net (default deny)
-    match /{document=**} {
-      allow read, write: if false;
+
+    // Tout ce qui n'est pas explicitement autorisé plus bas est refusé.
+
+    function signedIn() {
+      return request.auth != null;
     }
 
-    // Helper to check if signed-in and email matches the unique owner
-    function isOwner() {
-      return request.auth != null 
-        && request.auth.token.email == "ngwanoloic256@gmail.com";
+    function uid() {
+      return request.auth.uid;
     }
 
-    match /secretariatCatalogue/{id} {
-      allow read, write: if isOwner();
+    function myEmail() {
+      return request.auth.token.email;
     }
 
-    match /secretariatMouvements/{id} {
-      allow read, write: if isOwner();
+    function memberPath(orgId) {
+      return /databases/$(database)/documents/organisations/$(orgId)/members/$(uid());
     }
 
-    match /mobileMoneyTransactions/{id} {
-      allow read, write: if isOwner();
+    function orgPath(orgId) {
+      return /databases/$(database)/documents/organisations/$(orgId);
     }
 
-    match /boissonsCatalogue/{id} {
-      allow read, write: if isOwner();
+    function isMember(orgId) {
+      return signedIn() && exists(memberPath(orgId));
     }
 
-    match /boissonsMouvements/{id} {
-      allow read, write: if isOwner();
+    function isAdmin(orgId) {
+      return isMember(orgId) && get(memberPath(orgId)).data.role in ['owner', 'admin'];
     }
 
-    match /historiquePrix/{id} {
-      allow read, write: if isOwner();
+    // ---------- Profils utilisateurs ----------
+    match /users/{userId} {
+      allow read: if signedIn() && uid() == userId;
+      allow create, update: if signedIn() && uid() == userId
+        && request.resource.data.uid == userId;
+
+      // Index personnel « mes organisations ». La source de vérité reste
+      // organisations/{orgId}/members/{uid} : ce miroir ne donne aucun droit.
+      match /memberships/{orgId} {
+        allow read: if signedIn() && uid() == userId;
+        allow create, update: if signedIn() && uid() == userId
+          && request.resource.data.orgId == orgId
+          && existsAfter(memberPath(orgId));
+        allow delete: if signedIn() && (uid() == userId || isAdmin(orgId));
+      }
     }
+
+    // ---------- Organisations ----------
+    match /organisations/{orgId} {
+      allow read: if isMember(orgId);
+
+      // Création : le créateur devient propriétaire dans le même lot d'écriture.
+      allow create: if signedIn()
+        && request.resource.data.id == orgId
+        && request.resource.data.ownerUid == uid()
+        && request.resource.data.plan == 'free'
+        && request.resource.data.nom is string
+        && request.resource.data.nom.size() >= 2
+        && request.resource.data.nom.size() <= 80
+        && existsAfter(memberPath(orgId))
+        && getAfter(memberPath(orgId)).data.role == 'owner';
+
+      // Le plan, le propriétaire et l'identifiant ne se modifient pas depuis le client.
+      allow update: if isAdmin(orgId)
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.plan == resource.data.plan
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.nom is string
+        && request.resource.data.nom.size() >= 2
+        && request.resource.data.nom.size() <= 80;
+
+      allow delete: if false;
+
+      // ----- Membres et rôles -----
+      match /members/{memberId} {
+        allow read: if isMember(orgId);
+
+        allow create: if signedIn()
+          && memberId == uid()
+          && request.resource.data.uid == uid()
+          && (
+            // Fondateur : l'organisation n'existe pas encore et il en est le propriétaire.
+            (
+              request.resource.data.role == 'owner'
+              && !exists(orgPath(orgId))
+              && getAfter(orgPath(orgId)).data.ownerUid == uid()
+            )
+            // Invité : une invitation à son adresse vérifiée fixe son rôle.
+            || (
+              request.auth.token.email_verified == true
+              && exists(/databases/$(database)/documents/invitations/$(orgId + '_' + myEmail()))
+              && get(/databases/$(database)/documents/invitations/$(orgId + '_' + myEmail())).data.role == request.resource.data.role
+              && request.resource.data.role in ['admin', 'member']
+            )
+          );
+
+        // Changement de rôle par un administrateur ; le propriétaire est intouchable.
+        allow update: if isAdmin(orgId)
+          && resource.data.role != 'owner'
+          && request.resource.data.role in ['admin', 'member']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role']);
+
+        // Retrait par un administrateur, ou départ volontaire.
+        allow delete: if resource.data.role != 'owner'
+          && (isAdmin(orgId) || (signedIn() && memberId == uid()));
+      }
+
+      // ----- Journal d'activité : on ajoute, on ne réécrit jamais -----
+      match /journal/{entryId} {
+        allow read: if isAdmin(orgId);
+        allow create: if isMember(orgId) && request.resource.data.uid == uid();
+        allow update, delete: if false;
+      }
+
+      // ----- Données métier, isolées par organisation -----
+      match /{collectionName}/{docId} {
+        allow read, create, update: if collectionName in [
+            'secretariatCatalogue', 'secretariatMouvements', 'mobileMoneyTransactions',
+            'boissonsCatalogue', 'boissonsMouvements', 'historiquePrix'
+          ] && isMember(orgId);
+        allow delete: if collectionName in [
+            'secretariatCatalogue', 'secretariatMouvements', 'mobileMoneyTransactions',
+            'boissonsCatalogue', 'boissonsMouvements', 'historiquePrix'
+          ] && isAdmin(orgId);
+      }
+    }
+
+    // ---------- Invitations ----------
+    // Identifiant imposé : {orgId}_{email en minuscules}.
+    match /invitations/{inviteId} {
+      allow read: if signedIn()
+        && (resource.data.email == myEmail() || isAdmin(resource.data.orgId));
+      allow create: if isAdmin(request.resource.data.orgId)
+        && inviteId == request.resource.data.orgId + '_' + request.resource.data.email
+        && request.resource.data.email == request.resource.data.email.lower()
+        && request.resource.data.role in ['admin', 'member']
+        && request.resource.data.invitedBy == uid();
+      allow update: if false;
+      allow delete: if signedIn()
+        && (resource.data.email == myEmail() || isAdmin(resource.data.orgId));
+    }
+
+    // ---------- Données historiques (avant le passage multi-organisations) ----------
+    // Anciennes collections racine du compte d'origine. Conservées telles quelles
+    // pour que ce compte puisse les importer dans son organisation.
+    function isLegacyOwner() {
+      return signedIn() && myEmail() == "ngwanoloic256@gmail.com";
+    }
+
+    match /secretariatCatalogue/{id} { allow read, write: if isLegacyOwner(); }
+    match /secretariatMouvements/{id} { allow read, write: if isLegacyOwner(); }
+    match /mobileMoneyTransactions/{id} { allow read, write: if isLegacyOwner(); }
+    match /boissonsCatalogue/{id} { allow read, write: if isLegacyOwner(); }
+    match /boissonsMouvements/{id} { allow read, write: if isLegacyOwner(); }
+    match /historiquePrix/{id} { allow read, write: if isLegacyOwner(); }
   }
 }
-

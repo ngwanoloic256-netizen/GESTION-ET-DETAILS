@@ -1,6 +1,6 @@
 {
   "name": "Gestion de Stock et Mobile Money",
-  "description": "Application centralisée pour la gestion de stock du secrétariat, suivi des transactions Mobile Money et ventes de jus.",
+  "description": "Plateforme multi-organisations de commerce et marketing digital : espaces isolés par commerçant, équipes et rôles, gestion de stock, Mobile Money et ventes.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

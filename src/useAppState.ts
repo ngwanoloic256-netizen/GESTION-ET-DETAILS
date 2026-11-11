@@ -8,7 +8,7 @@ import {
   BoissonMouvement,
   HistoriquePrix,
 } from './types';
-import { db, auth } from './firebase';
+import { db } from './firebase';
 import {
   collection,
   doc,
@@ -18,14 +18,7 @@ import {
   writeBatch,
   onSnapshot
 } from 'firebase/firestore';
-import {
-  onAuthStateChanged,
-  User,
-  signInWithPopup,
-  GoogleAuthProvider,
-  signOut
-} from 'firebase/auth';
-import { handleFirestoreError, testConnection, OperationType } from './firebaseUtils';
+import { handleFirestoreError, OperationType } from './firebaseUtils';
 
 // Helper to generate IDs
 const generateId = () => Math.random().toString(36).substring(2, 9);
@@ -374,78 +367,26 @@ const INITIAL_STATE: AppState = {
   ]
 };
 
-export function useAppState() {
-  const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState<boolean>(true);
-  const [authError, setAuthError] = useState<string | null>(null);
+const EMPTY_STATE: AppState = {
+  secretariatCatalogue: [],
+  secretariatMouvements: [],
+  mobileMoneyTransactions: [],
+  boissonsCatalogue: [],
+  boissonsMouvements: [],
+  historiquePrix: [],
+};
+
+/**
+ * Données métier d'une organisation. Tout est lu et écrit sous
+ * organisations/{orgId}/… ; passer `null` coupe la synchronisation
+ * (module désactivé ou aucune organisation active).
+ */
+export function useAppState(orgId: string | null) {
   const [loading, setLoading] = useState<boolean>(true);
-  const [state, setState] = useState<AppState>({
-    secretariatCatalogue: [],
-    secretariatMouvements: [],
-    mobileMoneyTransactions: [],
-    boissonsCatalogue: [],
-    boissonsMouvements: [],
-    historiquePrix: [],
-  });
+  const [state, setState] = useState<AppState>(EMPTY_STATE);
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
 
-  // Listen to Firebase Auth state on mount
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        // Enforce that only the single allowed user (ngwanoloic256@gmail.com) can access
-        if (currentUser.email === "ngwanoloic256@gmail.com") {
-          setUser(currentUser);
-          setAuthError(null);
-        } else {
-          // Log out immediately if not authorized
-          await signOut(auth);
-          setUser(null);
-          setAuthError("Accès refusé : Seul l'administrateur unique (ngwanoloic256@gmail.com) est autorisé.");
-          setLoading(false);
-        }
-      } else {
-        setUser(null);
-        setLoading(false);
-      }
-      setAuthLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  const loginWithGoogle = async () => {
-    setAuthError(null);
-    try {
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      if (result.user && result.user.email !== "ngwanoloic256@gmail.com") {
-        await signOut(auth);
-        setUser(null);
-        setAuthError("Accès refusé : Seul l'administrateur unique (ngwanoloic256@gmail.com) est autorisé.");
-      }
-    } catch (err: any) {
-      console.error("Google Sign-In failed: ", err);
-      setAuthError(err.message || "Échec de la connexion avec Google.");
-    }
-  };
-
-  const logout = async () => {
-    try {
-      await signOut(auth);
-      setUser(null);
-      setState({
-        secretariatCatalogue: [],
-        secretariatMouvements: [],
-        mobileMoneyTransactions: [],
-        boissonsCatalogue: [],
-        boissonsMouvements: [],
-        historiquePrix: [],
-      });
-    } catch (err) {
-      console.error("Logout failed: ", err);
-    }
-  };
+  const orgDoc = (col: string, id: string) => doc(db, 'organisations', orgId as string, col, id);
 
   // Helper to force synchronization and update status
   const runSync = async <T>(promise: Promise<T>): Promise<T> => {
@@ -460,33 +401,33 @@ export function useAppState() {
     }
   };
 
-  // Automatically initialize database with demo data if it's completely empty
+  // Remplit l'organisation avec le jeu de données de démonstration (action explicite uniquement)
   const seedInitialData = async () => {
     try {
       const batch = writeBatch(db);
 
       INITIAL_STATE.secretariatCatalogue.forEach((item) => {
-        batch.set(doc(db, 'secretariatCatalogue', item.id), item);
+        batch.set(orgDoc('secretariatCatalogue', item.id), item);
       });
 
       INITIAL_STATE.secretariatMouvements.forEach((item) => {
-        batch.set(doc(db, 'secretariatMouvements', item.id), item);
+        batch.set(orgDoc('secretariatMouvements', item.id), item);
       });
 
       INITIAL_STATE.mobileMoneyTransactions.forEach((item) => {
-        batch.set(doc(db, 'mobileMoneyTransactions', item.id), item);
+        batch.set(orgDoc('mobileMoneyTransactions', item.id), item);
       });
 
       INITIAL_STATE.boissonsCatalogue.forEach((item) => {
-        batch.set(doc(db, 'boissonsCatalogue', item.id), item);
+        batch.set(orgDoc('boissonsCatalogue', item.id), item);
       });
 
       INITIAL_STATE.boissonsMouvements.forEach((item) => {
-        batch.set(doc(db, 'boissonsMouvements', item.id), item);
+        batch.set(orgDoc('boissonsMouvements', item.id), item);
       });
 
       INITIAL_STATE.historiquePrix.forEach((item) => {
-        batch.set(doc(db, 'historiquePrix', item.id), item);
+        batch.set(orgDoc('historiquePrix', item.id), item);
       });
 
       await runSync(batch.commit());
@@ -497,32 +438,19 @@ export function useAppState() {
   };
 
   useEffect(() => {
-    if (authLoading) return;
+    setState(EMPTY_STATE);
 
-    // If user is not logged in or not authorized, don't subscribe to Firestore
-    if (!user || user.email !== "ngwanoloic256@gmail.com") {
+    if (!orgId) {
       setLoading(false);
       return;
     }
 
-    // Perform safety check on boot
-    testConnection();
-
-    const collectionsList: { key: keyof AppState; path: string }[] = [
-      { key: 'secretariatCatalogue', path: 'secretariatCatalogue' },
-      { key: 'secretariatMouvements', path: 'secretariatMouvements' },
-      { key: 'mobileMoneyTransactions', path: 'mobileMoneyTransactions' },
-      { key: 'boissonsCatalogue', path: 'boissonsCatalogue' },
-      { key: 'boissonsMouvements', path: 'boissonsMouvements' },
-      { key: 'historiquePrix', path: 'historiquePrix' },
-    ];
-
+    const keys = Object.keys(EMPTY_STATE) as (keyof AppState)[];
+    const loaded = new Set<keyof AppState>();
     setLoading(true);
-    let loadedCount = 0;
-    const initialFetchedData: Partial<AppState> = {};
 
-    const unsubscribers = collectionsList.map(({ key, path }) => {
-      return onSnapshot(collection(db, path), (snapshot) => {
+    const unsubscribers = keys.map((key) => {
+      return onSnapshot(collection(db, 'organisations', orgId, key), (snapshot) => {
         const items: any[] = [];
         snapshot.forEach((snapDoc) => {
           items.push(snapDoc.data());
@@ -533,20 +461,11 @@ export function useAppState() {
           [key]: items,
         }));
 
-        initialFetchedData[key] = items;
-        
-        loadedCount++;
-        if (loadedCount >= collectionsList.length) {
-          // Check if all collections are empty in the Firebase project
-          const allEmpty = collectionsList.every(col => (initialFetchedData[col.key]?.length || 0) === 0);
-          if (allEmpty) {
-            seedInitialData();
-          }
-          setLoading(false);
-        }
+        loaded.add(key);
+        if (loaded.size >= keys.length) setLoading(false);
       }, (error) => {
-        console.error(`Error loading collection ${path}: `, error);
-        // Ensure app doesn't stay stuck in loading if there are rule errors or empty DB
+        console.error(`Error loading collection ${key}: `, error);
+        // Ne pas rester bloqué sur l'écran de chargement en cas de refus des règles
         setLoading(false);
       });
     });
@@ -554,19 +473,19 @@ export function useAppState() {
     return () => {
       unsubscribers.forEach(unsub => unsub());
     };
-  }, [user, authLoading]);
+  }, [orgId]);
 
   // --- ACTIONS GLOBALES ---
 
   const clearAllData = async () => {
     try {
       const batch = writeBatch(db);
-      state.secretariatCatalogue.forEach(item => batch.delete(doc(db, 'secretariatCatalogue', item.id)));
-      state.secretariatMouvements.forEach(item => batch.delete(doc(db, 'secretariatMouvements', item.id)));
-      state.mobileMoneyTransactions.forEach(item => batch.delete(doc(db, 'mobileMoneyTransactions', item.id)));
-      state.boissonsCatalogue.forEach(item => batch.delete(doc(db, 'boissonsCatalogue', item.id)));
-      state.boissonsMouvements.forEach(item => batch.delete(doc(db, 'boissonsMouvements', item.id)));
-      state.historiquePrix.forEach(item => batch.delete(doc(db, 'historiquePrix', item.id)));
+      state.secretariatCatalogue.forEach(item => batch.delete(orgDoc('secretariatCatalogue', item.id)));
+      state.secretariatMouvements.forEach(item => batch.delete(orgDoc('secretariatMouvements', item.id)));
+      state.mobileMoneyTransactions.forEach(item => batch.delete(orgDoc('mobileMoneyTransactions', item.id)));
+      state.boissonsCatalogue.forEach(item => batch.delete(orgDoc('boissonsCatalogue', item.id)));
+      state.boissonsMouvements.forEach(item => batch.delete(orgDoc('boissonsMouvements', item.id)));
+      state.historiquePrix.forEach(item => batch.delete(orgDoc('historiquePrix', item.id)));
       await runSync(batch.commit());
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, 'clear_all_data');
@@ -597,33 +516,33 @@ export function useAppState() {
 
       sortedSecMovs.forEach(item => {
         if (!keepSecIds.has(item.id)) {
-          batch.delete(doc(db, 'secretariatMouvements', item.id));
+          batch.delete(orgDoc('secretariatMouvements', item.id));
         }
       });
 
       // 2. Delete all Mobile Money transactions
       state.mobileMoneyTransactions.forEach(item => {
-        batch.delete(doc(db, 'mobileMoneyTransactions', item.id));
+        batch.delete(orgDoc('mobileMoneyTransactions', item.id));
       });
 
       // 3. Delete all Boissons movements
       state.boissonsMouvements.forEach(item => {
-        batch.delete(doc(db, 'boissonsMouvements', item.id));
+        batch.delete(orgDoc('boissonsMouvements', item.id));
       });
 
       // 4. Delete all Historique Prix
       state.historiquePrix.forEach(item => {
-        batch.delete(doc(db, 'historiquePrix', item.id));
+        batch.delete(orgDoc('historiquePrix', item.id));
       });
 
       // 5. Reset all stocks in Boissons Catalogue to 0
       state.boissonsCatalogue.forEach(item => {
-        batch.update(doc(db, 'boissonsCatalogue', item.id), { quantiteEnStock: 0 });
+        batch.update(orgDoc('boissonsCatalogue', item.id), { quantiteEnStock: 0 });
       });
 
       // 6. Reset all stocks in Secretariat Catalogue to 0
       state.secretariatCatalogue.forEach(item => {
-        batch.update(doc(db, 'secretariatCatalogue', item.id), { quantiteEnStock: 0 });
+        batch.update(orgDoc('secretariatCatalogue', item.id), { quantiteEnStock: 0 });
       });
 
       await runSync(batch.commit());
@@ -633,41 +552,27 @@ export function useAppState() {
     }
   };
 
-  // Automatic execution once when initial loading completes for the correct user
-  useEffect(() => {
-    if (!loading && user && user.email === "ngwanoloic256@gmail.com") {
-      const resetFlagKey = 'auto_reset_except_3_sec_v3';
-      if (!localStorage.getItem(resetFlagKey)) {
-        localStorage.setItem(resetFlagKey, 'completed');
-        resetExceptLastThreeSecretariat().catch(err => {
-          console.error("Auto reset failed: ", err);
-          localStorage.removeItem(resetFlagKey); // clear flag on error so we try again
-        });
-      }
-    }
-  }, [loading, user, state.secretariatMouvements.length]);
-
   const importData = async (imported: Partial<AppState>) => {
     try {
       const batch = writeBatch(db);
 
       if (imported.secretariatCatalogue) {
-        imported.secretariatCatalogue.forEach(item => batch.set(doc(db, 'secretariatCatalogue', item.id), item));
+        imported.secretariatCatalogue.forEach(item => batch.set(orgDoc('secretariatCatalogue', item.id), item));
       }
       if (imported.secretariatMouvements) {
-        imported.secretariatMouvements.forEach(item => batch.set(doc(db, 'secretariatMouvements', item.id), item));
+        imported.secretariatMouvements.forEach(item => batch.set(orgDoc('secretariatMouvements', item.id), item));
       }
       if (imported.mobileMoneyTransactions) {
-        imported.mobileMoneyTransactions.forEach(item => batch.set(doc(db, 'mobileMoneyTransactions', item.id), item));
+        imported.mobileMoneyTransactions.forEach(item => batch.set(orgDoc('mobileMoneyTransactions', item.id), item));
       }
       if (imported.boissonsCatalogue) {
-        imported.boissonsCatalogue.forEach(item => batch.set(doc(db, 'boissonsCatalogue', item.id), item));
+        imported.boissonsCatalogue.forEach(item => batch.set(orgDoc('boissonsCatalogue', item.id), item));
       }
       if (imported.boissonsMouvements) {
-        imported.boissonsMouvements.forEach(item => batch.set(doc(db, 'boissonsMouvements', item.id), item));
+        imported.boissonsMouvements.forEach(item => batch.set(orgDoc('boissonsMouvements', item.id), item));
       }
       if (imported.historiquePrix) {
-        imported.historiquePrix.forEach(item => batch.set(doc(db, 'historiquePrix', item.id), item));
+        imported.historiquePrix.forEach(item => batch.set(orgDoc('historiquePrix', item.id), item));
       }
 
       await runSync(batch.commit());
@@ -686,7 +591,7 @@ export function useAppState() {
       createdAt: new Date().toISOString(),
     };
     try {
-      await runSync(setDoc(doc(db, 'secretariatCatalogue', id), newArticle));
+      await runSync(setDoc(orgDoc('secretariatCatalogue', id), newArticle));
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `secretariatCatalogue/${id}`);
     }
@@ -701,7 +606,7 @@ export function useAppState() {
       const prixChange = updated.prixActuel !== undefined && updated.prixActuel !== artOriginal.prixActuel;
 
       const batch = writeBatch(db);
-      batch.update(doc(db, 'secretariatCatalogue', id), updated);
+      batch.update(orgDoc('secretariatCatalogue', id), updated);
 
       if (prixChange && updated.prixActuel !== undefined) {
         const histId = 'hp-' + generateId();
@@ -715,7 +620,7 @@ export function useAppState() {
           nouveauPrix: updated.prixActuel,
           dateChangement: new Date().toISOString(),
         };
-        batch.set(doc(db, 'historiquePrix', histId), histEntry);
+        batch.set(orgDoc('historiquePrix', histId), histEntry);
       }
 
       await runSync(batch.commit());
@@ -727,11 +632,11 @@ export function useAppState() {
   const deleteSecretariatArticle = async (id: string) => {
     try {
       const batch = writeBatch(db);
-      batch.delete(doc(db, 'secretariatCatalogue', id));
+      batch.delete(orgDoc('secretariatCatalogue', id));
 
       state.secretariatMouvements.forEach((mov) => {
         if (mov.idArticle === id) {
-          batch.update(doc(db, 'secretariatMouvements', mov.id), { idArticle: null });
+          batch.update(orgDoc('secretariatMouvements', mov.id), { idArticle: null });
         }
       });
 
@@ -752,7 +657,7 @@ export function useAppState() {
 
     try {
       const batch = writeBatch(db);
-      batch.set(doc(db, 'secretariatMouvements', id), newMouvement);
+      batch.set(orgDoc('secretariatMouvements', id), newMouvement);
 
       if (mouvement.idArticle) {
         const art = state.secretariatCatalogue.find((a) => a.id === mouvement.idArticle);
@@ -763,7 +668,7 @@ export function useAppState() {
           } else if (mouvement.typeMouvement === 'entree_stock') {
             modStock = mouvement.quantite;
           }
-          batch.update(doc(db, 'secretariatCatalogue', mouvement.idArticle), {
+          batch.update(orgDoc('secretariatCatalogue', mouvement.idArticle), {
             quantiteEnStock: Math.max(0, art.quantiteEnStock + modStock),
           });
         }
@@ -785,7 +690,7 @@ export function useAppState() {
       date: tx.date || new Date().toISOString(),
     };
     try {
-      await runSync(setDoc(doc(db, 'mobileMoneyTransactions', id), newTx));
+      await runSync(setDoc(orgDoc('mobileMoneyTransactions', id), newTx));
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `mobileMoneyTransactions/${id}`);
     }
@@ -793,7 +698,7 @@ export function useAppState() {
 
   const deleteMobileMoneyTransaction = async (id: string) => {
     try {
-      await runSync(deleteDoc(doc(db, 'mobileMoneyTransactions', id)));
+      await runSync(deleteDoc(orgDoc('mobileMoneyTransactions', id)));
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `mobileMoneyTransactions/${id}`);
     }
@@ -809,7 +714,7 @@ export function useAppState() {
       createdAt: new Date().toISOString(),
     };
     try {
-      await runSync(setDoc(doc(db, 'boissonsCatalogue', id), newProduct));
+      await runSync(setDoc(orgDoc('boissonsCatalogue', id), newProduct));
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `boissonsCatalogue/${id}`);
     }
@@ -822,11 +727,11 @@ export function useAppState() {
       if (!prodOriginal) return;
 
       const batch = writeBatch(db);
-      batch.update(doc(db, 'boissonsCatalogue', id), updated);
+      batch.update(orgDoc('boissonsCatalogue', id), updated);
 
       if (updated.prixVenteActuel !== undefined && updated.prixVenteActuel !== prodOriginal.prixVenteActuel) {
         const histId = 'hp-' + generateId();
-        batch.set(doc(db, 'historiquePrix', histId), {
+        batch.set(orgDoc('historiquePrix', histId), {
           id: histId,
           idArticleOuProduit: id,
           nomArticleOuProduit: updated.nom || prodOriginal.nom,
@@ -840,7 +745,7 @@ export function useAppState() {
 
       if (updated.prixAchatActuel !== undefined && updated.prixAchatActuel !== prodOriginal.prixAchatActuel) {
         const histId = 'hp-' + generateId();
-        batch.set(doc(db, 'historiquePrix', histId), {
+        batch.set(orgDoc('historiquePrix', histId), {
           id: histId,
           idArticleOuProduit: id,
           nomArticleOuProduit: updated.nom || prodOriginal.nom,
@@ -861,11 +766,11 @@ export function useAppState() {
   const deleteBoissonProduit = async (id: string) => {
     try {
       const batch = writeBatch(db);
-      batch.delete(doc(db, 'boissonsCatalogue', id));
+      batch.delete(orgDoc('boissonsCatalogue', id));
 
       state.boissonsMouvements.forEach((mov) => {
         if (mov.idProduit === id) {
-          batch.update(doc(db, 'boissonsMouvements', mov.id), { idProduit: 'deleted' });
+          batch.update(orgDoc('boissonsMouvements', mov.id), { idProduit: 'deleted' });
         }
       });
 
@@ -886,7 +791,7 @@ export function useAppState() {
 
     try {
       const batch = writeBatch(db);
-      batch.set(doc(db, 'boissonsMouvements', id), newMouvement);
+      batch.set(orgDoc('boissonsMouvements', id), newMouvement);
 
       const prod = state.boissonsCatalogue.find((p) => p.id === mouvement.idProduit);
       if (prod) {
@@ -896,7 +801,7 @@ export function useAppState() {
         } else if (mouvement.typeMouvement === 'entree') {
           modStock = mouvement.quantite;
         }
-        batch.update(doc(db, 'boissonsCatalogue', mouvement.idProduit), {
+        batch.update(orgDoc('boissonsCatalogue', mouvement.idProduit), {
           quantiteEnStock: Math.max(0, prod.quantiteEnStock + modStock),
         });
       }
@@ -915,12 +820,6 @@ export function useAppState() {
     resetToSampleData,
     resetExceptLastThreeSecretariat,
     importData,
-    // Auth fields
-    user,
-    authLoading,
-    authError,
-    loginWithGoogle,
-    logout,
     // Secrétariat
     addSecretariatArticle,
     updateSecretariatArticle,

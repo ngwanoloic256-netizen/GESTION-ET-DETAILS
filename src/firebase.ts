@@ -1,7 +1,6 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
-import { getAnalytics, isSupported } from "firebase/analytics";
-import { getAuth } from "firebase/auth";
+import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
+import { getAuth, connectAuthEmulator, GoogleAuthProvider, signInWithCredential } from "firebase/auth";
 
 // Config provided by the user
 const firebaseConfig = {
@@ -15,14 +14,29 @@ const firebaseConfig = {
   measurementId: "G-BL5PPVHPSQ"
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// Développement local : `npm run emulators` puis `npm run dev:local` branchent
+// l'application sur les émulateurs Firebase, sans jamais toucher à la production.
+const useEmulators = import.meta.env.DEV && import.meta.env.VITE_USE_EMULATORS === 'true';
 
-// Initialize Firestore with the user's specific database ID
-export const db = getFirestore(app, "ai-studio-gestiondestocket-c9302fd5-0dc6-42db-a023-5bfb1274d4f4");
+const app = initializeApp(useEmulators ? { ...firebaseConfig, projectId: 'demo-test' } : firebaseConfig);
 
-// Export Authentication
+// En production : la base nommée du projet. En local : la base par défaut de l'émulateur.
+export const db = useEmulators
+  ? getFirestore(app)
+  : getFirestore(app, "ai-studio-gestiondestocket-c9302fd5-0dc6-42db-a023-5bfb1274d4f4");
+
 export const auth = getAuth(app);
+
+if (useEmulators) {
+  connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  // Connexion sans fenêtre Google, pour les essais : __devSignIn('awa@example.com')
+  (window as any).__devSignIn = (email: string) =>
+    signInWithCredential(
+      auth,
+      GoogleAuthProvider.credential(JSON.stringify({ sub: email, email, email_verified: true, name: email.split('@')[0] })),
+    );
+}
 
 // Initialize Analytics is disabled in the preview sandbox to prevent iframe crashes
 export const analyticsPromise = Promise.resolve(null);
