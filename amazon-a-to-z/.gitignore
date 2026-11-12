@@ -1,0 +1,4 @@
+assets/fonts/
+out/*.mov
+out/frames/
+__pycache__/
